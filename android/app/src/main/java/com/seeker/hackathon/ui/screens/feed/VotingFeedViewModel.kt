@@ -1,0 +1,132 @@
+package com.seeker.hackathon.ui.screens.feed
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
+import com.seeker.hackathon.data.remote.SeekerApi
+import com.seeker.hackathon.data.remote.VoteConfirmRequestDto
+import com.seeker.hackathon.data.remote.VotePrepareRequestDto
+import com.seeker.hackathon.data.repository.WalletRepository
+import com.seeker.hackathon.domain.model.Project
+import com.seeker.hackathon.util.toProject
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class FeedUiState(
+    val projects: List<Project> = emptyList(),
+    val currentIndex: Int = 0,
+    val isLoading: Boolean = false,
+    val votedProjectIds: Set<String> = emptySet(),
+    val votingProjectId: String? = null,
+    val error: String? = null,
+    val voteSuccessMessage: String? = null,
+    val userMultiplier: Double = 1.0,
+    val isSeekerVerified: Boolean = false,
+)
+
+@HiltViewModel
+class VotingFeedViewModel @Inject constructor(
+    private val api: SeekerApi,
+    private val walletRepo: WalletRepository,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+
+    private val hackathonId: String = checkNotNull(savedStateHandle["hackathonId"])
+
+    private val _state = MutableStateFlow(FeedUiState(isLoading = true))
+    val state: StateFlow<FeedUiState> = _state.asStateFlow()
+
+    init {
+        loadProjects()
+        loadUserState()
+    }
+
+    private fun loadProjects() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, error = null)
+            try {
+                val projects = api.listProjects(hackathonId).map { it.toProject() }
+                _state.value = _state.value.copy(projects = projects, isLoading = false)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = "Failed to load projects: ${e.message}"
+                )
+            }
+        }
+    }
+
+    private fun loadUserState() {
+        viewModelScope.launch {
+            try {
+                val user = api.getMe()
+                _state.value = _state.value.copy(
+                    userMultiplier = user.vote_multiplier,
+                    isSeekerVerified = user.is_seeker_verified,
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun onSwipeUp() {
+        val projects = _state.value.projects
+        if (projects.isEmpty()) return
+        _state.value = _state.value.copy(
+            currentIndex = (_state.value.currentIndex + 1).coerceAtMost(projects.size - 1)
+        )
+    }
+
+    fun onSwipeDown() {
+        _state.value = _state.value.copy(
+            currentIndex = (_state.value.currentIndex - 1).coerceAtLeast(0)
+        )
+    }
+
+    fun castVote(projectId: String, sender: ActivityResultSender) {
+        if (_state.value.votedProjectIds.contains(projectId)) return
+        if (!_state.value.isSeekerVerified) {
+            _state.value = _state.value.copy(error = "You must hold a Seeker Genesis NFT to vote")
+            return
+        }
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(votingProjectId = projectId, error = null)
+
+            try {
+                // Step 1: Get unsigned transaction from backend
+                val prepare = api.prepareVote(VotePrepareRequestDto(project_id = projectId))
+
+                // Step 2: Sign + broadcast via Seeker SDK
+                val sigResult = walletRepo.signAndSendVoteTransaction(sender, prepare.transaction_b64)
+                val txSig = sigResult.getOrThrow()
+
+                // Step 3: Confirm with backend
+                val vote = api.confirmVote(VoteConfirmRequestDto(project_id = projectId, tx_signature = txSig))
+
+                _state.value = _state.value.copy(
+                    votedProjectIds = _state.value.votedProjectIds + projectId,
+                    votingProjectId = null,
+                    voteSuccessMessage = "Voted with ${prepare.vote_weight}× weight",
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    votingProjectId = null,
+                    error = e.message ?: "Vote failed",
+                )
+            }
+        }
+    }
+
+    fun dismissError() {
+        _state.value = _state.value.copy(error = null)
+    }
+
+    fun dismissSuccessMessage() {
+        _state.value = _state.value.copy(voteSuccessMessage = null)
+    }
+}

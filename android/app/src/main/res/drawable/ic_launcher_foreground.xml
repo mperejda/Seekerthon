@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple "S" monogram for Seekerthon -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,30 C42,30 34,36 34,44 C34,52 42,56 54,58 C66,60 74,64 74,72 C74,80 66,86 54,86 C42,86 34,80 34,72"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+</vector>

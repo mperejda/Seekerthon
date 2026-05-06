@@ -1,0 +1,54 @@
+# ================================
+# Android
+# ================================
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
+android/META-INF/
+android/.idea/workspace.xml
+android/.idea/deploymentTargetSelector.xml
+android/.idea/migrations.xml
+android/*.iml
+android/app/*.iml
+android/com/
+
+# ================================
+# Python / Backend
+# ================================
+backend/venv/
+backend/.env
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+backend/.pytest_cache/
+backend/**/*.egg-info/
+
+# ================================
+# Solana / Rust
+# ================================
+solana/target/
+solana/.claude/settings.local.json
+
+# ================================
+# Next.js / Webapp
+# ================================
+webapp/node_modules/
+webapp/.next/
+webapp/.env.local
+webapp/cache/
+
+# ================================
+# Supabase
+# ================================
+supabase/.temp/
+
+# ================================
+# OS / Editor
+# ================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/workspace.xml

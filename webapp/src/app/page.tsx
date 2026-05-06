@@ -1,0 +1,133 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+
+const WalletMultiButton = dynamic(
+  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
+  { ssr: false }
+);
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+interface Hackathon {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  prize_pool_usdc: number;
+  voting_start: string;
+  voting_end: string;
+  project_count: number;
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  draft: "bg-gray-100 text-gray-600",
+  open: "bg-green-100 text-green-700",
+  voting: "bg-blue-100 text-blue-700",
+  verifying: "bg-yellow-100 text-yellow-700",
+  completed: "bg-purple-100 text-purple-700",
+};
+
+export default function HomePage() {
+  const [hackathons, setHackathons] = useState<Hackathon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/hackathons/`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`API error ${r.status}`);
+        return r.json();
+      })
+      .then(setHackathons)
+      .catch((e) => setFetchError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto py-12 px-4">
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">Seekerthon</h1>
+          <p className="text-gray-500 mt-1">
+            Seeker Genesis NFT holders vote with weighted $SKR power
+          </p>
+        </div>
+        <WalletMultiButton />
+      </div>
+
+      {fetchError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+          Failed to load hackathons: {fetchError}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading...</div>
+      ) : hackathons.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-gray-400 mb-4">No hackathons yet.</p>
+          <a
+            href="/hackathons/create"
+            className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700"
+          >
+            Create the first one
+          </a>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {hackathons.map((h) => (
+            <div
+              key={h.id}
+              className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-sm transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      {h.title}
+                    </h2>
+                    <span
+                      className={`text-xs font-medium px-2 py-1 rounded-full capitalize ${
+                        STATUS_BADGE[h.status] ?? STATUS_BADGE.draft
+                      }`}
+                    >
+                      {h.status}
+                    </span>
+                  </div>
+                  <p className="text-gray-600 text-sm mb-3">{h.description}</p>
+                  <div className="flex gap-6 text-xs text-gray-400">
+                    <span>{h.project_count ?? 0} projects</span>
+                    <span>
+                      ${(h.prize_pool_usdc / 1_000_000).toLocaleString()} USDC prize
+                    </span>
+                    <span>
+                      Voting:{" "}
+                      {new Date(h.voting_start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} –{" "}
+                      {new Date(h.voting_end).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <a
+                    href={`/projects/submit/${h.id}`}
+                    className="text-sm bg-purple-50 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-100 text-center"
+                  >
+                    Submit Project
+                  </a>
+                  <a
+                    href={`/dashboard/${h.id}`}
+                    className="text-sm text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-center"
+                  >
+                    Organizer View
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

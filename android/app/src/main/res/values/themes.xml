@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Base window theme for Compose app. Compose draws its own Material3 theming;
+        this theme only controls the pre-Compose window (status bar, splash background).
+    -->
+    <style name="Theme.SeekerHackathon" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/white</item>
+    </style>
+</resources>

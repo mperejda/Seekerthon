@@ -1,0 +1,42 @@
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+from typing import List
+
+
+class Settings(BaseSettings):
+    supabase_url: str
+    supabase_key: str
+    supabase_service_role_key: str
+    solana_rpc_url: str = "https://api.mainnet-beta.solana.com"
+    solana_rpc_url_devnet: str = "https://api.devnet.solana.com"
+    jwt_secret: str
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7
+
+    # Comma-separated list of allowed CORS origins (e.g. http://localhost:3000)
+    cors_origins: List[str] = ["http://localhost:3000"]
+
+    # Solana program IDs — must be set in .env after on-chain deployment
+    escrow_program_id: str
+    voting_program_id: str
+
+    # Seeker Genesis NFT collection address and SKR token mint — must be set in .env
+    seeker_genesis_collection: str
+    skr_token_mint: str
+
+    # USDC mint address
+    # Devnet:  4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+    # Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    usdc_mint: str
+
+    # Vote weight config
+    max_vote_multiplier: float = 5.0
+    skr_per_multiplier_step: int = 100
+
+    class Config:
+        env_file = ".env"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
