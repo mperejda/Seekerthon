@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount};
 
 declare_id!("DdNeeXHP6QUyNMq8ZGAQ7VsSAcEQ7FCCbXbX9DrFFS8t");
 
@@ -71,63 +70,6 @@ pub mod voting {
         Ok(())
     }
 
-    /// Lock SKR tokens in the staking vault to earn vote multiplier
-    pub fn stake_skr(ctx: Context<StakeSkr>, amount: u64) -> Result<()> {
-        let staking_account = &mut ctx.accounts.staking_account;
-        staking_account.owner = ctx.accounts.voter.key();
-        staking_account.amount = staking_account.amount.checked_add(amount).ok_or(VotingError::Overflow)?;
-        staking_account.bump = ctx.bumps.staking_account;
-
-        token::transfer(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: ctx.accounts.voter_skr_ata.to_account_info(),
-                    to: ctx.accounts.vault_skr_ata.to_account_info(),
-                    authority: ctx.accounts.voter.to_account_info(),
-                },
-            ),
-            amount,
-        )?;
-
-        emit!(Staked {
-            voter: ctx.accounts.voter.key(),
-            amount,
-            new_total: staking_account.amount,
-        });
-
-        Ok(())
-    }
-
-    /// Unstake SKR — returns tokens to voter
-    pub fn unstake_skr(ctx: Context<UnstakeSkr>, amount: u64) -> Result<()> {
-        let staking_account = &mut ctx.accounts.staking_account;
-        require!(staking_account.amount >= amount, VotingError::InsufficientStake);
-        staking_account.amount -= amount;
-
-        let seeds = &[
-            b"stake",
-            ctx.accounts.voter.key.as_ref(),
-            ctx.accounts.skr_mint.key.as_ref(),
-            &[staking_account.bump],
-        ];
-        let signer = &[&seeds[..]];
-
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                token::Transfer {
-                    from: ctx.accounts.vault_skr_ata.to_account_info(),
-                    to: ctx.accounts.voter_skr_ata.to_account_info(),
-                    authority: staking_account.to_account_info(),
-                },
-                signer,
-            ),
-            amount,
-        )?;
-
-        Ok(())
-    }
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────
@@ -170,48 +112,6 @@ pub struct CastVote<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct StakeSkr<'info> {
-    #[account(mut)]
-    pub voter: Signer<'info>,
-
-    /// CHECK: read-only mint account — only its key is used for PDA derivation
-    pub skr_mint: AccountInfo<'info>,
-
-    #[account(mut)]
-    pub voter_skr_ata: Account<'info, TokenAccount>,
-
-    #[account(mut)]
-    pub vault_skr_ata: Account<'info, TokenAccount>,
-
-    #[account(
-        init_if_needed,
-        payer = voter,
-        space = StakingAccount::LEN,
-        seeds = [b"stake", voter.key().as_ref(), skr_mint.key().as_ref()],
-        bump,
-    )]
-    pub staking_account: Account<'info, StakingAccount>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UnstakeSkr<'info> {
-    #[account(mut)]
-    pub voter: Signer<'info>,
-    /// CHECK: read-only mint account — only its key is used for PDA derivation
-    pub skr_mint: AccountInfo<'info>,
-    #[account(mut)]
-    pub voter_skr_ata: Account<'info, TokenAccount>,
-    #[account(mut)]
-    pub vault_skr_ata: Account<'info, TokenAccount>,
-    #[account(mut, seeds = [b"stake", voter.key().as_ref(), skr_mint.key().as_ref()], bump = staking_account.bump)]
-    pub staking_account: Account<'info, StakingAccount>,
-    pub token_program: Program<'info, Token>,
-}
-
 // ── State ──────────────────────────────────────────────────────────────────
 
 #[account]
@@ -242,17 +142,6 @@ impl VoteRecord {
     pub const LEN: usize = 8 + 32 + 32 + 2 + 1 + 8 + 1;
 }
 
-#[account]
-pub struct StakingAccount {
-    pub owner: Pubkey,  // 32
-    pub amount: u64,    // 8
-    pub bump: u8,       // 1
-}
-
-impl StakingAccount {
-    pub const LEN: usize = 8 + 32 + 8 + 1;
-}
-
 // ── Events ──────────────────────────────────────────────────────────────────
 
 #[event]
@@ -261,13 +150,6 @@ pub struct VoteCast {
     pub project: Pubkey,
     pub hackathon_id: Pubkey,
     pub weight_bps: u16,
-}
-
-#[event]
-pub struct Staked {
-    pub voter: Pubkey,
-    pub amount: u64,
-    pub new_total: u64,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -280,6 +162,4 @@ pub enum VotingError {
     InvalidWeight,
     #[msg("Arithmetic overflow")]
     Overflow,
-    #[msg("Insufficient staked amount")]
-    InsufficientStake,
 }
