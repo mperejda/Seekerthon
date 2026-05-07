@@ -407,8 +407,34 @@ private fun YouTubePlayer(videoId: String, youtubeUrl: String, modifier: Modifie
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     mediaPlaybackRequiresUserGesture = false
+                    loadWithOverviewMode = true
+                    useWideViewPort = true
                 }
-                wv.loadUrl("https://www.youtube.com/embed/$videoId?rel=0&playsinline=1")
+                // Load as HTML with youtube.com as base URL so the embed
+                // gets a valid origin — required for autoplay and touch to work.
+                wv.loadDataWithBaseURL(
+                    "https://www.youtube.com",
+                    """<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; width:100vw; height:100vh; overflow:hidden; }
+iframe { width:100%; height:100%; border:none; display:block; }
+</style>
+</head>
+<body>
+<iframe src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&playsinline=1&rel=0&controls=1"
+  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+  allowfullscreen>
+</iframe>
+</body>
+</html>""",
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
             }
         },
         modifier = modifier,
