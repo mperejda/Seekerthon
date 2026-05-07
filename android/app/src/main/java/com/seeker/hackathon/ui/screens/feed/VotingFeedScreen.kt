@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +40,7 @@ import com.seeker.hackathon.domain.model.Project
 import com.seeker.hackathon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun VotingFeedScreen(
     hackathonId: String,
@@ -60,36 +62,42 @@ fun VotingFeedScreen(
                 color = Color.White
             )
         } else {
-            LazyColumn(
-                state = listState,
-                flingBehavior = flingBehavior,
+            PullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = { viewModel.refresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(state.projects) { index, project ->
-                    ProjectCard(
-                        project = project,
-                        isVoted = state.votedProjectIds.contains(project.id),
-                        isVoting = state.votingProjectId == project.id,
-                        userMultiplier = state.userMultiplier,
-                        isSeekerVerified = state.isSeekerVerified,
-                        onVote = { viewModel.castVote(project.id, activityResultSender) },
-                        modifier = Modifier
-                            .fillParentMaxHeight()
-                            .fillMaxWidth(),
-                    )
-                }
-                if (state.projects.isEmpty()) {
-                    item {
-                        Box(
+                LazyColumn(
+                    state = listState,
+                    flingBehavior = flingBehavior,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(state.projects) { index, project ->
+                        ProjectCard(
+                            project = project,
+                            isVoted = state.votedProjectIds.contains(project.id),
+                            isVoting = state.votingProjectId == project.id,
+                            userMultiplier = state.userMultiplier,
+                            isSeekerVerified = state.isSeekerVerified,
+                            onVote = { viewModel.castVote(project.id, activityResultSender) },
                             modifier = Modifier
                                 .fillParentMaxHeight()
                                 .fillMaxWidth(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Outlined.Inbox, null, tint = Color.White, modifier = Modifier.size(48.dp))
-                                Spacer(Modifier.height(12.dp))
-                                Text("No projects yet", color = Color.White, fontSize = 18.sp)
+                        )
+                    }
+                    if (state.projects.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillParentMaxHeight()
+                                    .fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Outlined.Inbox, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                                    Spacer(Modifier.height(12.dp))
+                                    Text("No projects yet", color = Color.White, fontSize = 18.sp)
+                                }
                             }
                         }
                     }

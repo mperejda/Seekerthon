@@ -22,6 +22,7 @@ data class FeedUiState(
     val projects: List<Project> = emptyList(),
     val currentIndex: Int = 0,
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val votedProjectIds: Set<String> = emptySet(),
     val votingProjectId: String? = null,
     val error: String? = null,
@@ -57,6 +58,22 @@ class VotingFeedViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     isLoading = false,
                     error = "Failed to load projects: ${e.message}"
+                )
+            }
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isRefreshing = true, error = null)
+            try {
+                val projects = api.listProjects(hackathonId).map { it.toProject() }
+                val voted = try { api.getMyVotes().toSet() } catch (_: Exception) { _state.value.votedProjectIds }
+                _state.value = _state.value.copy(projects = projects, votedProjectIds = voted, isRefreshing = false)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    isRefreshing = false,
+                    error = "Failed to refresh: ${e.message}"
                 )
             }
         }
