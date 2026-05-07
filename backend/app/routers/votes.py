@@ -35,10 +35,15 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     # Fast path: use the flag cached at login time.
     # Fall back to a live mainnet check if the DB says False — handles the case
     # where the collection address was fixed after the user last logged in.
-    user_row = db.table("users").select("is_seeker_verified").eq("id", user_id).single().execute()
+    user_row = db.table("users").select("is_seeker_verified").eq("id", user_id).maybe_single().execute()
     is_verified = (user_row.data or {}).get("is_seeker_verified", False)
     if not is_verified:
-        is_verified = await verify_seeker_genesis_holder(wallet)
+        try:
+            is_verified = await verify_seeker_genesis_holder(wallet)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Genesis check error for %s: %s", wallet, exc)
+            raise HTTPException(status_code=503, detail="Could not verify NFT ownership — try again")
         if is_verified:
             db.table("users").update({"is_seeker_verified": True}).eq("id", user_id).execute()
     if not is_verified:
