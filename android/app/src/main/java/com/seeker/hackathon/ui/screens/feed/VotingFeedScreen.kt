@@ -30,12 +30,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.seeker.hackathon.domain.model.Project
 import com.seeker.hackathon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
@@ -181,30 +185,29 @@ private fun ProjectCard(
 ) {
     val context = LocalContext.current
 
+    val youtubeId = project.demoUrl?.let { extractYouTubeId(it) }
+
     Box(modifier = modifier) {
-        // Background: video or image
-        if (project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true) {
-            VideoPlayer(
+        // Background: YouTube embed, mp4, image, or gradient placeholder
+        when {
+            youtubeId != null -> YouTubePlayer(
+                videoId = youtubeId,
+                modifier = Modifier.fillMaxSize(),
+            )
+            project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true -> VideoPlayer(
                 url = project.demoUrl,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else if (!project.storageAssetIds.isEmpty()) {
-            AsyncImage(
+            project.storageAssetIds.isNotEmpty() -> AsyncImage(
                 model = project.storageAssetIds.first(),
                 contentDescription = project.name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-        } else {
-            // Gradient placeholder
-            Box(
+            else -> Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xFF1A0533), Color(0xFF0A1A33))
-                        )
-                    )
+                    .background(Brush.verticalGradient(colors = listOf(Color(0xFF1A0533), Color(0xFF0A1A33))))
             )
         }
 
@@ -375,6 +378,49 @@ private fun VotePowerChip(multiplier: Double) {
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
             )
+        }
+    }
+}
+
+private fun extractYouTubeId(url: String): String? {
+    val patterns = listOf(
+        Regex("""youtu\.be/([a-zA-Z0-9_-]{11})"""),
+        Regex("""youtube\.com/watch\?.*v=([a-zA-Z0-9_-]{11})"""),
+        Regex("""youtube\.com/embed/([a-zA-Z0-9_-]{11})"""),
+        Regex("""youtube\.com/shorts/([a-zA-Z0-9_-]{11})"""),
+    )
+    for (pattern in patterns) {
+        pattern.find(url)?.let { return it.groupValues[1] }
+    }
+    return null
+}
+
+@Composable
+private fun YouTubePlayer(videoId: String, modifier: Modifier = Modifier) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var playerView by remember { mutableStateOf<YouTubePlayerView?>(null) }
+
+    AndroidView(
+        factory = { context ->
+            YouTubePlayerView(context).also { view ->
+                playerView = view
+                lifecycleOwner.lifecycle.addObserver(view)
+                view.addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
+                    override fun onReady(youTubePlayer: YouTubePlayer) {
+                        youTubePlayer.cueVideo(videoId, 0f)
+                    }
+                })
+            }
+        },
+        modifier = modifier,
+    )
+
+    DisposableEffect(lifecycleOwner) {
+        onDispose {
+            playerView?.let {
+                lifecycleOwner.lifecycle.removeObserver(it)
+                it.release()
+            }
         }
     }
 }
