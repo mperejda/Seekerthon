@@ -16,7 +16,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --default-toolchain stable --no-modify-path
 ENV PATH="/root/.cargo/bin:$PATH"
 
-RUN rustup toolchain install ${RUST_TOOLCHAIN} --component rustfmt clippy \
+RUN rustup toolchain install ${RUST_TOOLCHAIN} --component rustfmt --component clippy \
     && rustup target add wasm32-unknown-unknown --toolchain ${RUST_TOOLCHAIN}
 
 # Solana CLI
