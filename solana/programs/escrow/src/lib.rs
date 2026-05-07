@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{self, Mint, Token, TokenAccount, Transfer},
+    token::{self, Account as TokenAccount, Mint, Token, Transfer},
 };
 
 declare_id!("GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs");
@@ -22,6 +22,10 @@ pub mod escrow {
         voting_end: i64,
     ) -> Result<()> {
         require!(prize_usdc > 0, EscrowError::InvalidPrize);
+        require!(
+            voting_start >= 0 && voting_end > voting_start,
+            EscrowError::InvalidTimestamps,
+        );
 
         let escrow = &mut ctx.accounts.hackathon_escrow;
         escrow.organizer = ctx.accounts.organizer.key();
@@ -71,12 +75,17 @@ pub mod escrow {
             ctx.accounts.hackathon_escrow.status == HackathonEscrowStatus::Active,
             EscrowError::AlreadyReleased,
         );
+        require!(
+            ctx.remaining_accounts.len() == winner_share_bps.len(),
+            EscrowError::RecipientCountMismatch,
+        );
 
         let total_bps: u16 = winner_share_bps.iter().sum();
         require!(total_bps <= 10_000, EscrowError::InvalidShares);
 
         let prize = ctx.accounts.hackathon_escrow.prize_usdc;
         let bump = ctx.accounts.hackathon_escrow.bump;
+        let usdc_mint_key = ctx.accounts.usdc_mint.key();
         let seeds: &[&[u8]] = &[b"hackathon_escrow", hackathon_id.as_ref(), &[bump]];
         let signer_seeds = &[seeds];
 
@@ -84,13 +93,25 @@ pub mod escrow {
         let authority_info = ctx.accounts.hackathon_escrow.to_account_info();
         let token_program_info = ctx.accounts.token_program.to_account_info();
 
-        // Transfer each winner's share from vault to their USDC ATA
         for (i, recipient_ata) in ctx.remaining_accounts.iter().enumerate() {
-            let share_bps = winner_share_bps.get(i).copied().unwrap_or(0) as u64;
-            let amount = prize.checked_mul(share_bps).unwrap() / 10_000;
+            // Validate each account is a token account with the correct USDC mint.
+            let recipient_ta = TokenAccount::try_from(recipient_ata)
+                .map_err(|_| EscrowError::InvalidRecipientAccount)?;
+            require!(
+                recipient_ta.mint == usdc_mint_key,
+                EscrowError::InvalidRecipientMint,
+            );
+
+            let share_bps = winner_share_bps[i] as u64;
+            let amount = prize
+                .checked_mul(share_bps)
+                .ok_or(EscrowError::Overflow)?
+                / 10_000;
+
             if amount == 0 {
                 continue;
             }
+
             token::transfer(
                 CpiContext::new_with_signer(
                     token_program_info.clone(),
@@ -222,7 +243,7 @@ pub struct ReleasePrize<'info> {
     pub vault: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
-    // Winner USDC ATAs passed in remaining_accounts
+    // Winner USDC ATAs passed in remaining_accounts; validated in instruction body.
 }
 
 #[derive(Accounts)]
@@ -310,4 +331,14 @@ pub enum EscrowError {
     VotingAlreadyStarted,
     #[msg("Prize amount must be > 0")]
     InvalidPrize,
+    #[msg("voting_start must be >= 0 and voting_end must be > voting_start")]
+    InvalidTimestamps,
+    #[msg("Arithmetic overflow")]
+    Overflow,
+    #[msg("Recipient account is not a valid token account")]
+    InvalidRecipientAccount,
+    #[msg("Recipient token account mint does not match USDC mint")]
+    InvalidRecipientMint,
+    #[msg("Number of recipients must match number of share entries")]
+    RecipientCountMismatch,
 }

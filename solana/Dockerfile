@@ -1,17 +1,18 @@
+# syntax=docker/dockerfile:1.4
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SOLANA_VERSION=1.18.26
 ENV ANCHOR_VERSION=0.30.1
 ENV NODE_VERSION=20
-ENV RUST_TOOLCHAIN=nightly-2024-11-22
+ENV RUST_TOOLCHAIN=nightly-2025-01-15
 
 # System deps
 RUN apt-get update && apt-get install -y \
     curl git build-essential pkg-config libssl-dev libudev-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust (stable bootstrapper, then pin the project toolchain)
+# Rust — stable bootstrapper, project toolchain pinned via rust-toolchain.toml
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --default-toolchain stable --no-modify-path
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -29,11 +30,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && npm install -g yarn \
     && rm -rf /var/lib/apt/lists/*
 
-# AVM + Anchor
-RUN cargo install --git https://github.com/coral-xyz/anchor avm --locked --force \
-    && ln -sf /root/.cargo/bin/avm /usr/local/bin/avm
-RUN avm install ${ANCHOR_VERSION} && avm use ${ANCHOR_VERSION} \
-    && ln -sf /root/.avm/bin/anchor /usr/local/bin/anchor
+# Anchor CLI — installed directly from crates.io, no AVM needed.
+# Cache mounts keep the registry index and build artifacts warm across builds.
+RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
+    --mount=type=cache,target=/root/.cargo/git,sharing=locked \
+    --mount=type=cache,target=/tmp/anchor-build,sharing=locked \
+    CARGO_TARGET_DIR=/tmp/anchor-build \
+    cargo install anchor-cli --version ${ANCHOR_VERSION} --locked \
+    && anchor --version
 
 WORKDIR /workspace
 

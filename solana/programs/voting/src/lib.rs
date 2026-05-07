@@ -4,6 +4,7 @@ declare_id!("DdNeeXHP6QUyNMq8ZGAQ7VsSAcEQ7FCCbXbX9DrFFS8t");
 
 pub const MAX_MULTIPLIER_BPS: u16 = 50_000; // 5.0x in basis points
 pub const BASE_WEIGHT_BPS: u16 = 10_000;    // 1.0x
+pub const MAX_PROJECT_NAME_LEN: usize = 64;
 
 #[program]
 pub mod voting {
@@ -15,6 +16,11 @@ pub mod voting {
         hackathon_id: Pubkey,
         project_name: String,
     ) -> Result<()> {
+        require!(
+            project_name.len() <= MAX_PROJECT_NAME_LEN,
+            VotingError::NameTooLong,
+        );
+
         let project = &mut ctx.accounts.project_record;
         project.hackathon_id = hackathon_id;
         project.team_lead = ctx.accounts.team_lead.key();
@@ -37,11 +43,8 @@ pub mod voting {
         );
 
         let vote_record = &mut ctx.accounts.vote_record;
-        require!(!vote_record.has_voted, VotingError::AlreadyVoted);
-
         let project_key = ctx.accounts.project_record.key();
 
-        // Record the vote
         vote_record.voter = ctx.accounts.voter.key();
         vote_record.project = project_key;
         vote_record.weight_bps = weight_bps;
@@ -49,7 +52,6 @@ pub mod voting {
         vote_record.voted_at = Clock::get()?.unix_timestamp;
         vote_record.bump = ctx.bumps.vote_record;
 
-        // Update project total
         let project = &mut ctx.accounts.project_record;
         project.total_vote_weight_bps = project
             .total_vote_weight_bps
@@ -72,7 +74,7 @@ pub mod voting {
 
 }
 
-// ── Accounts ──────────────────────────────────────────────────────────────
+// ── Accounts ──────────────────────────────────────────────────
 
 #[derive(Accounts)]
 #[instruction(hackathon_id: Pubkey, project_name: String)]
@@ -97,11 +99,18 @@ pub struct CastVote<'info> {
     #[account(mut)]
     pub voter: Signer<'info>,
 
-    #[account(mut)]
+    // Seed constraint verifies this is the canonical PDA for this project,
+    // preventing an attacker from inflating vote counts on an arbitrary account.
+    #[account(
+        mut,
+        seeds = [b"project", project_record.hackathon_id.as_ref(), project_record.team_lead.as_ref()],
+        bump = project_record.bump,
+    )]
     pub project_record: Account<'info, ProjectRecord>,
 
+    // `init` (not `init_if_needed`) — PDA uniqueness structurally prevents double voting.
     #[account(
-        init_if_needed,
+        init,
         payer = voter,
         space = VoteRecord::LEN,
         seeds = [b"vote", voter.key().as_ref(), project_record.key().as_ref()],
@@ -112,20 +121,20 @@ pub struct CastVote<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// ── State ──────────────────────────────────────────────────────────────────
+// ── State ──────────────────────────────────────────────────────
 
 #[account]
 pub struct ProjectRecord {
     pub hackathon_id: Pubkey,       // 32
     pub team_lead: Pubkey,          // 32
-    pub name: String,               // 4 + 64
+    pub name: String,               // 4 + MAX_PROJECT_NAME_LEN
     pub total_vote_weight_bps: u64, // 8
     pub unique_voters: u64,         // 8
     pub bump: u8,                   // 1
 }
 
 impl ProjectRecord {
-    pub const LEN: usize = 8 + 32 + 32 + (4 + 64) + 8 + 8 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + (4 + MAX_PROJECT_NAME_LEN) + 8 + 8 + 1;
 }
 
 #[account]
@@ -142,7 +151,7 @@ impl VoteRecord {
     pub const LEN: usize = 8 + 32 + 32 + 2 + 1 + 8 + 1;
 }
 
-// ── Events ──────────────────────────────────────────────────────────────────
+// ── Events ──────────────────────────────────────────────────────
 
 #[event]
 pub struct VoteCast {
@@ -152,7 +161,7 @@ pub struct VoteCast {
     pub weight_bps: u16,
 }
 
-// ── Errors ──────────────────────────────────────────────────────────────────
+// ── Errors ──────────────────────────────────────────────────────
 
 #[error_code]
 pub enum VotingError {
@@ -162,4 +171,6 @@ pub enum VotingError {
     InvalidWeight,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Project name exceeds 64 bytes")]
+    NameTooLong,
 }
