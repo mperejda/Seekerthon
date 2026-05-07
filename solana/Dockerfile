@@ -20,8 +20,8 @@ RUN rustup toolchain install ${RUST_TOOLCHAIN} --component rustfmt --component c
     && rustup target add wasm32-unknown-unknown --toolchain ${RUST_TOOLCHAIN}
 
 # Solana CLI
-RUN curl -sSfL "https://release.solana.com/v${SOLANA_VERSION}/install" | sh \
-    && ln -sf /root/.local/share/solana/install/active_release/bin/* /usr/local/bin/
+RUN curl -sSfL "https://release.solana.com/v${SOLANA_VERSION}/install" | sh
+ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 
 # Node.js + yarn (required by Anchor CLI)
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
