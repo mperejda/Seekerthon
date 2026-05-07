@@ -2,12 +2,6 @@
 members = ["programs/*"]
 resolver = "2"
 
-# Force proc-macro2 >= 1.0.92 across the whole workspace.
-# proc_macro::SourceFile was removed from nightly on 2025-01-08;
-# proc-macro2 1.0.92 dropped the dependency on that API.
-[workspace.dependencies]
-proc-macro2 = ">=1.0.92"
-
 [profile.release]
 overflow-checks = true
 lto = "fat"

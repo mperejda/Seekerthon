@@ -18,4 +18,3 @@ default = []
 
 [dependencies]
 anchor-lang = { version = "0.30.1" }
-proc-macro2 = { workspace = true }
