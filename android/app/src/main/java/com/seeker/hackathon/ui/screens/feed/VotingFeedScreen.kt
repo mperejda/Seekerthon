@@ -30,17 +30,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import com.seeker.hackathon.domain.model.Project
 import com.seeker.hackathon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
@@ -399,58 +396,26 @@ private fun extractYouTubeId(url: String): String? {
 
 @Composable
 private fun YouTubePlayer(videoId: String, youtubeUrl: String, modifier: Modifier = Modifier) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
-    var playerView by remember { mutableStateOf<YouTubePlayerView?>(null) }
-    var embedFailed by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
 
-    DisposableEffect(lifecycleOwner) {
-        onDispose {
-            playerView?.let {
-                lifecycleOwner.lifecycle.removeObserver(it)
-                it.release()
-                playerView = null
+    AndroidView(
+        factory = { context ->
+            WebView(context).also { wv ->
+                webView = wv
+                wv.webViewClient = WebViewClient()
+                wv.settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    mediaPlaybackRequiresUserGesture = false
+                }
+                wv.loadUrl("https://www.youtube.com/embed/$videoId?rel=0&playsinline=1")
             }
-        }
-    }
+        },
+        modifier = modifier,
+    )
 
-    if (embedFailed) {
-        Box(
-            modifier = modifier.background(
-                Brush.verticalGradient(colors = listOf(Color(0xFF1A0533), Color(0xFF0A1A33)))
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Outlined.PlayArrow, null, tint = Color.White, modifier = Modifier.size(48.dp))
-                Text("Embedding disabled", color = Color.White, fontSize = 14.sp)
-                OutlinedButton(
-                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(youtubeUrl))) },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
-                ) {
-                    Text("Watch on YouTube")
-                }
-            }
-        }
-    } else {
-        AndroidView(
-            factory = { ctx ->
-                YouTubePlayerView(ctx).also { view ->
-                    playerView = view
-                    lifecycleOwner.lifecycle.addObserver(view)
-                    view.addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
-                        override fun onReady(youTubePlayer: YouTubePlayer) {
-                            youTubePlayer.cueVideo(videoId, 0f)
-                        }
-                        override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
-                            embedFailed = true
-                        }
-                    })
-                }
-            },
-            modifier = modifier,
-        )
+    DisposableEffect(Unit) {
+        onDispose { webView?.destroy() }
     }
 }
 
