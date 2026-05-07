@@ -92,4 +92,7 @@ interface SeekerApi {
 
     @POST("votes/confirm")
     suspend fun confirmVote(@Body body: VoteConfirmRequestDto): VoteResponseDto
+
+    @GET("votes/mine")
+    suspend fun getMyVotes(): List<String>
 }

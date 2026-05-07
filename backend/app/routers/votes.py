@@ -157,6 +157,15 @@ async def confirm_vote(body: VoteConfirmRequest, request: Request):
     return VoteResponse(**result.data[0])
 
 
+@router.get("/mine", response_model=List[str])
+async def get_my_votes(request: Request):
+    """Return project IDs the current user has already voted on."""
+    db = get_supabase_admin()
+    user_id = request.state.user_id
+    result = db.table("votes").select("project_id").eq("voter_id", user_id).execute()
+    return [row["project_id"] for row in result.data]
+
+
 @router.get("/project/{project_id}", response_model=List[VoteResponse])
 async def get_project_votes(
     project_id: str,

@@ -71,6 +71,12 @@ class VotingFeedViewModel @Inject constructor(
                 )
             } catch (_: Exception) {}
         }
+        viewModelScope.launch {
+            try {
+                val voted = api.getMyVotes().toSet()
+                _state.value = _state.value.copy(votedProjectIds = voted)
+            } catch (_: Exception) {}
+        }
     }
 
     fun onSwipeUp() {
@@ -105,9 +111,13 @@ class VotingFeedViewModel @Inject constructor(
                 val vote = api.confirmVote(VoteConfirmRequestDto(project_id = projectId, vote_message = prepare.vote_message, tx_signature = txSig))
 
                 _state.value = _state.value.copy(
+                    projects = _state.value.projects.map { p ->
+                        if (p.id == projectId) p.copy(voteCount = p.voteCount + prepare.vote_weight)
+                        else p
+                    },
                     votedProjectIds = _state.value.votedProjectIds + projectId,
                     votingProjectId = null,
-                    voteSuccessMessage = "Voted with ${prepare.vote_weight}× weight",
+                    voteSuccessMessage = "Voted! Weight: ${prepare.vote_weight}×",
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
