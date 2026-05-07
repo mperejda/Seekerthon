@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV SOLANA_VERSION=1.18.26
 ENV ANCHOR_VERSION=0.30.1
 ENV NODE_VERSION=20
-ENV RUST_TOOLCHAIN=nightly-2025-01-15
+ENV RUST_TOOLCHAIN=nightly-2024-12-15
 
 # System deps
 RUN apt-get update && apt-get install -y \
