@@ -36,6 +36,32 @@ Web App (Next.js 14)
 |-------|---------|--------|------|--------------|
 | ![Login](screenshots/Login.png) | ![Connect](screenshots/Connect.png) | ![Verify](screenshots/Verify.png) | ![Home](screenshots/Home.png) | ![Test Project](screenshots/TestProject.png) |
 
+## Solana Blockchain Integration
+
+All trust-critical operations go on-chain on Solana. The backend never holds funds and never acts as a trusted intermediary for votes — it only builds transactions that the user signs with their own wallet.
+
+### Wallet authentication
+The app uses the [Seeker Mobile Wallet Adapter (MWA)](https://github.com/solana-mobile/mobile-wallet-adapter) to connect to the user's Seed Vault. Authentication is a challenge-response flow: the backend issues a random challenge, the user signs it with their private key inside Seed Vault, and the backend verifies the signature on-chain before issuing a JWT. No seed phrase or private key ever leaves the device.
+
+### Genesis NFT gating
+Before a vote transaction is built, the backend calls `verify_seeker_genesis_holder()` which queries the Solana mainnet RPC for all SPL Token and Token-2022 accounts owned by the wallet. For each NFT (balance = 1), it derives the Metaplex metadata PDA and reads the raw on-chain account data to confirm a verified collection entry matching the `SEEKER_GENESIS_COLLECTION` address. If no matching NFT is found the request is rejected with a `403`.
+
+### Vote transactions
+Votes are recorded both on-chain and in the database:
+1. The backend builds an unsigned Solana transaction (`cast_vote` instruction targeting the voting program) and returns it base64-encoded to the app.
+2. The app passes the transaction to Seed Vault via MWA for signing and broadcasting — the user's key signs it on-device.
+3. The app submits the transaction signature to `/votes/confirm`. The backend calls `getTransaction` on the RPC to verify the transaction landed on-chain, the voter is a signer, and the correct program was invoked before writing the vote to the database.
+
+### SKR token staking & vote weight
+Vote weight is derived from the user's staked $SKR balance read directly from the on-chain staking vault PDA (`seeds = ["stake", wallet, mint]`). The weight is locked at prepare time so it cannot change between signing and confirmation.
+
+```
+weight = min(1 + log2(1 + staked_skr / 100), 5.0)
+```
+
+### Prize escrow
+Prize pools are held in a USDC escrow PDA (`seeds = ["hackathon_escrow", hackathon_id]`) owned by the escrow program — not by the backend or organizer. Funds can only be released by calling the `release_prize` instruction, which the organizer signs via the web app after verifying the winning project's tech stack. The backend builds the release transaction; the organizer signs it.
+
 ## Seeker Genesis NFT Verification
 
 The Android app connects via Seeker Mobile Wallet Adapter. When a user tries to vote, the backend (`/api/v1/votes/prepare`) calls `verify_seeker_genesis_holder()` which:
