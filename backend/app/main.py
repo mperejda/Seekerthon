@@ -1,9 +1,15 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import hackathons, projects, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
 import uvicorn
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
 
 _settings = get_settings()
 
