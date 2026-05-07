@@ -2,6 +2,12 @@
 
 TikTok-style hackathon voting for Seeker users. Only Seeker Genesis NFT holders can vote. $SKR stakers get weighted votes (up to 5×). Prize pools are held in Solana escrow and released by the organizer after verifying winning teams' tech.
 
+## Demo
+
+| Web App | Mobile App |
+|---------|------------|
+| [![Web App Demo](https://img.youtube.com/vi/TxJNYVNTCuU/0.jpg)](https://youtu.be/TxJNYVNTCuU) | [![Mobile App Demo](https://img.youtube.com/vi/mUMq7XHoo6c/0.jpg)](https://youtube.com/shorts/mUMq7XHoo6c?feature=share) |
+
 ## Architecture
 
 ```
