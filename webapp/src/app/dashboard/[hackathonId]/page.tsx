@@ -262,7 +262,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-bold text-purple-600">{project.vote_count.toFixed(1)}</div>
                   <div className="text-xs text-gray-400 mb-3">weighted votes</div>
-                  {project.status !== "winner" && votingEnded && (
+                  {project.status !== "winner" && votingEnded && idx === 0 && (
                     <button
                       onClick={() => verifyAndRelease(project.id)}
                       disabled={verifying === project.id || !publicKey}
