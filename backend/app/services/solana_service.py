@@ -185,31 +185,6 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
     return False
 
 
-async def get_wallet_nft_collections(wallet_address: str) -> list[dict]:
-    """
-    Return every NFT held by a wallet with its collection key and whether it matches
-    the configured GENESIS_COLLECTION. Used by the debug endpoint to diagnose
-    genesis-check failures when the collection address in .env may be wrong.
-    """
-    results = []
-    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
-        resp = await _rpc_post(
-            "getTokenAccountsByOwner",
-            [wallet_address, {"programId": str(token_program)}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
-            rpc_url=MAINNET_RPC_URL,
-        )
-        for acct in resp.get("result", {}).get("value", []):
-            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
-            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
-                mint_str = info.get("mint", "")
-                collection_key, verified = await _fetch_nft_collection(mint_str)
-                results.append({
-                    "mint": mint_str,
-                    "collection_key": collection_key,
-                    "verified": verified,
-                    "matches_config": collection_key == GENESIS_COLLECTION,
-                })
-    return results
 
 
 async def build_vote_transaction(
