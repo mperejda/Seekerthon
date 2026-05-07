@@ -184,15 +184,23 @@ private fun ProjectCard(
     val context = LocalContext.current
 
     val youtubeId = project.demoUrl?.let { extractYouTubeId(it) }
+    var youtubeIsPlaying by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
         // Background: YouTube embed, mp4, image, or gradient placeholder
         when {
-            youtubeId != null -> YouTubePlayer(
-                videoId = youtubeId,
-                youtubeUrl = project.demoUrl!!,
-                modifier = Modifier.fillMaxSize(),
-            )
+            youtubeId != null -> if (youtubeIsPlaying) {
+                YouTubeWebPlayer(
+                    videoId = youtubeId,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                YouTubeThumbnail(
+                    videoId = youtubeId,
+                    onPlay = { youtubeIsPlaying = true },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true -> VideoPlayer(
                 url = project.demoUrl,
                 modifier = Modifier.fillMaxSize(),
@@ -395,7 +403,42 @@ private fun extractYouTubeId(url: String): String? {
 }
 
 @Composable
-private fun YouTubePlayer(videoId: String, youtubeUrl: String, modifier: Modifier = Modifier) {
+private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        AsyncImage(
+            model = "https://img.youtube.com/vi/$videoId/maxresdefault.jpg",
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        // Dark scrim + play button
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.25f))
+                .clickable(onClick = onPlay),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xCCFF0000)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun YouTubeWebPlayer(videoId: String, modifier: Modifier = Modifier) {
     var webView by remember { mutableStateOf<WebView?>(null) }
 
     AndroidView(
@@ -410,8 +453,6 @@ private fun YouTubePlayer(videoId: String, youtubeUrl: String, modifier: Modifie
                     loadWithOverviewMode = true
                     useWideViewPort = true
                 }
-                // Load as HTML with youtube.com as base URL so the embed
-                // gets a valid origin — required for autoplay and touch to work.
                 wv.loadDataWithBaseURL(
                     "https://www.youtube.com",
                     """<!DOCTYPE html>
@@ -425,7 +466,7 @@ iframe { width:100%; height:100%; border:none; display:block; }
 </style>
 </head>
 <body>
-<iframe src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&playsinline=1&rel=0&controls=1"
+<iframe src="https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1&rel=0&controls=1"
   allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
   allowfullscreen>
 </iframe>
