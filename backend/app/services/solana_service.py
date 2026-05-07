@@ -141,7 +141,32 @@ def _parse_metadata_collection(data: bytes) -> tuple[str | None, bool]:
 
 
 async def _fetch_nft_collection(mint_str: str) -> tuple[str | None, bool]:
-    """Fetch and parse the Metaplex metadata for a mint. Returns (collection_key, verified)."""
+    """
+    Return (collection_key, verified) for a mint.
+    Checks Token-2022 tokenGroupMember extension first (Seeker Genesis NFTs),
+    then falls back to Metaplex metadata PDA for standard SPL Token NFTs.
+    """
+    # Token-2022 path: tokenGroupMember extension on the mint account itself
+    try:
+        resp = await _rpc_post(
+            "getAccountInfo",
+            [mint_str, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        extensions = (
+            resp.get("result", {}).get("value", {})
+            .get("data", {}).get("parsed", {})
+            .get("info", {}).get("extensions", [])
+        )
+        for ext in extensions:
+            if ext.get("extension") == "tokenGroupMember":
+                group = ext.get("state", {}).get("group")
+                if group:
+                    return group, True
+    except Exception:
+        pass
+
+    # Metaplex path: metadata PDA for standard SPL Token NFTs
     try:
         mint = Pubkey.from_string(mint_str)
     except ValueError:
