@@ -62,8 +62,8 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     if not project.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    project_pda = project.data.get("onchain_pda", "11111111111111111111111111111111")
-    hackathon_pda = (project.data.get("hackathons") or {}).get("onchain_pda", "11111111111111111111111111111111")
+    project_pda = project.data.get("onchain_pda") or "11111111111111111111111111111111"
+    hackathon_pda = (project.data.get("hackathons") or {}).get("onchain_pda") or "11111111111111111111111111111111"
 
     # Compute and lock vote weight now — not at confirm time
     _, skr_staked = await get_skr_balance(wallet)

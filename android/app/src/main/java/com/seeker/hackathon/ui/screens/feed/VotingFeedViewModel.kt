@@ -89,10 +89,6 @@ class VotingFeedViewModel @Inject constructor(
 
     fun castVote(projectId: String, sender: ActivityResultSender) {
         if (_state.value.votedProjectIds.contains(projectId)) return
-        if (!_state.value.isSeekerVerified) {
-            _state.value = _state.value.copy(error = "You must hold a Seeker Genesis NFT to vote")
-            return
-        }
 
         viewModelScope.launch {
             _state.value = _state.value.copy(votingProjectId = projectId, error = null)
