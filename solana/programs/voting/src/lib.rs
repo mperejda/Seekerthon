@@ -10,7 +10,6 @@ pub const MAX_PROJECT_NAME_LEN: usize = 64;
 pub mod voting {
     use super::*;
 
-    /// Register a new project for voting within a hackathon
     pub fn register_project(
         ctx: Context<RegisterProject>,
         hackathon_id: Pubkey,
@@ -31,8 +30,6 @@ pub mod voting {
         Ok(())
     }
 
-    /// Cast a weighted vote for a project.
-    /// One PDA per (voter, project) — structurally prevents double voting.
     pub fn cast_vote(
         ctx: Context<CastVote>,
         weight_bps: u16,

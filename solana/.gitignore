@@ -1,0 +1,8 @@
+node_modules/
+.yarn/
+
+# Rust/Anchor build artifacts — target/deploy/ (program keypairs) are intentionally tracked
+target/deps/
+target/debug/
+target/release/
+target/sbf-solana-solana/

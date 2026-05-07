@@ -6,14 +6,10 @@ use anchor_spl::{
 
 declare_id!("GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs");
 
-/// USDC has 6 decimal places — all prize amounts are stored in base units (micro-USDC).
-pub const USDC_DECIMALS: u8 = 6;
-
 #[program]
 pub mod escrow {
     use super::*;
 
-    /// Organizer creates a hackathon and deposits the USDC prize pool into an escrow vault.
     pub fn create_hackathon(
         ctx: Context<CreateHackathon>,
         hackathon_id: [u8; 16],
@@ -37,7 +33,6 @@ pub mod escrow {
         escrow.status = HackathonEscrowStatus::Active;
         escrow.bump = ctx.bumps.hackathon_escrow;
 
-        // Transfer USDC from organizer's ATA into the escrow vault
         token::transfer(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -59,9 +54,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Organizer verifies the winning project's tech and releases USDC prize to winners.
-    /// Winner wallets and their split are passed via remaining_accounts + winner_share_bps.
-    /// Shares must sum to ≤ 10_000 bps (100%). Any remainder stays in the vault.
     pub fn release_prize<'info>(
         ctx: Context<'_, '_, '_, 'info, ReleasePrize<'info>>,
         hackathon_id: [u8; 16],
@@ -138,7 +130,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Emergency refund — returns USDC to organizer if hackathon is cancelled before voting.
     pub fn refund<'info>(
         ctx: Context<'_, '_, '_, 'info, Refund<'info>>,
         hackathon_id: [u8; 16],
@@ -208,7 +199,6 @@ pub struct CreateHackathon<'info> {
     )]
     pub vault: Account<'info, TokenAccount>,
 
-    /// Organizer's USDC ATA — USDC is debited from here.
     #[account(
         mut,
         associated_token::mint = usdc_mint,
