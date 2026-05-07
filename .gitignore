@@ -12,7 +12,6 @@ android/.idea/deploymentTargetSelector.xml
 android/.idea/migrations.xml
 android/*.iml
 android/app/*.iml
-android/com/
 
 # ================================
 # Python / Backend
