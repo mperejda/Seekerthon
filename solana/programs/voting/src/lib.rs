@@ -165,8 +165,6 @@ pub struct VoteCast {
 
 #[error_code]
 pub enum VotingError {
-    #[msg("Already voted for this project")]
-    AlreadyVoted,
     #[msg("Weight must be between 1.0x and 5.0x")]
     InvalidWeight,
     #[msg("Arithmetic overflow")]

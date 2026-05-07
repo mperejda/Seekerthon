@@ -14,7 +14,7 @@ voting = "DdNeeXHP6QUyNMq8ZGAQ7VsSAcEQ7FCCbXbX9DrFFS8t"
 escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
 
 [registry]
-url = "https://api.apr.dev"
+url = "https://api.anchor-lang.com"
 
 [provider]
 cluster = "Devnet"

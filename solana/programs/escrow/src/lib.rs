@@ -94,13 +94,15 @@ pub mod escrow {
         let token_program_info = ctx.accounts.token_program.to_account_info();
 
         for (i, recipient_ata) in ctx.remaining_accounts.iter().enumerate() {
-            // Validate each account is a token account with the correct USDC mint.
-            let recipient_ta = TokenAccount::try_from(recipient_ata)
-                .map_err(|_| EscrowError::InvalidRecipientAccount)?;
+            // Validate owner (catches non-token accounts) then check mint via accessor
+            // so wrong-mint ATAs are rejected with a clear error before the CPI fires.
             require!(
-                recipient_ta.mint == usdc_mint_key,
-                EscrowError::InvalidRecipientMint,
+                recipient_ata.owner == &anchor_spl::token::ID,
+                EscrowError::InvalidRecipientAccount,
             );
+            let acct_mint = anchor_spl::token::accessor::mint(recipient_ata)
+                .map_err(|_| EscrowError::InvalidRecipientAccount)?;
+            require!(acct_mint == usdc_mint_key, EscrowError::InvalidRecipientMint);
 
             let share_bps = winner_share_bps[i] as u64;
             let amount = prize
