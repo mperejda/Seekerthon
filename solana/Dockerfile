@@ -20,8 +20,8 @@ RUN rustup toolchain install ${RUST_TOOLCHAIN} --component rustfmt --component c
     && rustup target add wasm32-unknown-unknown --toolchain ${RUST_TOOLCHAIN}
 
 # Solana CLI
-RUN curl -sSfL "https://release.solana.com/v${SOLANA_VERSION}/install" | sh
-ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
+RUN curl -sSfL "https://release.solana.com/v${SOLANA_VERSION}/install" | sh \
+    && ln -sf /root/.local/share/solana/install/active_release/bin/* /usr/local/bin/
 
 # Node.js + yarn (required by Anchor CLI)
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
@@ -30,9 +30,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # AVM + Anchor
-RUN cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-ENV PATH="/root/.avm/bin:$PATH"
-RUN avm install ${ANCHOR_VERSION} && avm use ${ANCHOR_VERSION}
+RUN cargo install --git https://github.com/coral-xyz/anchor avm --locked --force \
+    && ln -sf /root/.cargo/bin/avm /usr/local/bin/avm
+RUN avm install ${ANCHOR_VERSION} && avm use ${ANCHOR_VERSION} \
+    && ln -sf /root/.avm/bin/anchor /usr/local/bin/anchor
 
 WORKDIR /workspace
 
