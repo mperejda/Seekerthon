@@ -6,7 +6,7 @@ TikTok-style hackathon voting for Seeker users. Only Seeker Genesis NFT holders 
 
 | Web App | Mobile App |
 |---------|------------|
-| [![Web App Demo](https://img.youtube.com/vi/TxJNYVNTCuU/0.jpg)](https://youtu.be/TxJNYVNTCuU) | [![Mobile App Demo](https://img.youtube.com/vi/mUMq7XHoo6c/0.jpg)](https://youtube.com/shorts/mUMq7XHoo6c?feature=share) |
+| <a href="https://youtu.be/TxJNYVNTCuU" target="_blank"><img src="https://img.youtube.com/vi/TxJNYVNTCuU/0.jpg" alt="Web App Demo"></a> | <a href="https://youtube.com/shorts/mUMq7XHoo6c?feature=share" target="_blank"><img src="https://img.youtube.com/vi/mUMq7XHoo6c/0.jpg" alt="Mobile App Demo"></a> |
 
 ## Architecture
 
