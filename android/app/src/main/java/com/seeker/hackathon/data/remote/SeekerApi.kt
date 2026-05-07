@@ -47,13 +47,13 @@ data class ProjectDto(
 
 data class VotePrepareRequestDto(val project_id: String)
 data class VotePrepareResponseDto(
-    val transaction_b64: String,
+    val vote_message: String,
     val vote_weight: Double,
     val voter_skr_staked: Long,
     val expires_at: String,
 )
 
-data class VoteConfirmRequestDto(val project_id: String, val tx_signature: String)
+data class VoteConfirmRequestDto(val project_id: String, val vote_message: String, val tx_signature: String)
 data class VoteResponseDto(
     val id: String,
     val voter_id: String,

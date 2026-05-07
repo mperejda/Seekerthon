@@ -142,7 +142,7 @@ class VotePrepareRequest(BaseModel):
 
 
 class VotePrepareResponse(BaseModel):
-    transaction_b64: str       # base64-encoded unsigned Solana transaction
+    vote_message: str           # structured message for the wallet to sign
     vote_weight: float
     voter_skr_staked: int
     expires_at: datetime
@@ -150,7 +150,8 @@ class VotePrepareResponse(BaseModel):
 
 class VoteConfirmRequest(BaseModel):
     project_id: UUID4
-    tx_signature: str
+    vote_message: str           # the original message that was signed
+    tx_signature: str           # base58 ed25519 signature from the wallet
 
 
 class VoteResponse(BaseModel):

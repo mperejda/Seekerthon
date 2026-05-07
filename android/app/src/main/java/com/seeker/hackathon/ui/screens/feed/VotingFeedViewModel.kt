@@ -94,15 +94,15 @@ class VotingFeedViewModel @Inject constructor(
             _state.value = _state.value.copy(votingProjectId = projectId, error = null)
 
             try {
-                // Step 1: Get unsigned transaction from backend
+                // Step 1: Get vote message + locked weight from backend
                 val prepare = api.prepareVote(VotePrepareRequestDto(project_id = projectId))
 
-                // Step 2: Sign + broadcast via Seeker SDK
-                val sigResult = walletRepo.signAndSendVoteTransaction(sender, prepare.transaction_b64)
+                // Step 2: Sign the message with Seeker wallet (no tx, no fees)
+                val sigResult = walletRepo.signVoteMessage(sender, prepare.vote_message)
                 val txSig = sigResult.getOrThrow()
 
-                // Step 3: Confirm with backend
-                val vote = api.confirmVote(VoteConfirmRequestDto(project_id = projectId, tx_signature = txSig))
+                // Step 3: Confirm with backend — sends message + ed25519 sig
+                val vote = api.confirmVote(VoteConfirmRequestDto(project_id = projectId, vote_message = prepare.vote_message, tx_signature = txSig))
 
                 _state.value = _state.value.copy(
                     votedProjectIds = _state.value.votedProjectIds + projectId,
