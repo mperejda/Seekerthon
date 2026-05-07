@@ -3,6 +3,7 @@ package com.seeker.hackathon.ui.screens.hackathons
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.seeker.hackathon.data.remote.SeekerApi
+import com.seeker.hackathon.data.repository.WalletRepository
 import com.seeker.hackathon.domain.model.Hackathon
 import com.seeker.hackathon.util.toHackathon
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +22,7 @@ data class HackathonListUiState(
 @HiltViewModel
 class HackathonListViewModel @Inject constructor(
     private val api: SeekerApi,
+    private val walletRepo: WalletRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HackathonListUiState(isLoading = true))
@@ -28,6 +30,13 @@ class HackathonListViewModel @Inject constructor(
 
     init {
         load()
+    }
+
+    fun signOut(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            walletRepo.logout()
+            onComplete()
+        }
     }
 
     fun load() {

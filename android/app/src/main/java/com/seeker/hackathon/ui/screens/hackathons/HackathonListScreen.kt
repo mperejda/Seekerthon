@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.*
@@ -26,12 +27,20 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun HackathonListScreen(
     onHackathonClick: (String) -> Unit,
+    onSignOut: () -> Unit,
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Seekerthon") })
+        TopAppBar(
+            title = { Text("Seekerthon") },
+            actions = {
+                IconButton(onClick = { viewModel.signOut(onSignOut) }) {
+                    Icon(Icons.Outlined.Logout, contentDescription = "Sign out")
+                }
+            },
+        )
 
         when {
             state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

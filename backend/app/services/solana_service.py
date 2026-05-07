@@ -22,6 +22,7 @@ _log = logging.getLogger(__name__)
 _settings = get_settings()
 
 RPC_URL = _settings.solana_rpc_url
+MAINNET_RPC_URL = "https://api.mainnet-beta.solana.com"
 SKR_MINT = _settings.skr_token_mint
 GENESIS_COLLECTION = _settings.seeker_genesis_collection
 VOTING_PROGRAM = _settings.voting_program_id
@@ -39,9 +40,9 @@ ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25e
 SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
 
 
-async def _rpc_post(method: str, params: list) -> dict:
+async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(RPC_URL, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        resp = await client.post(rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         resp.raise_for_status()
         return resp.json()
 
@@ -106,28 +107,30 @@ def compute_vote_weight(skr_staked: int) -> float:
 async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
     """
     Verifies that the wallet holds at least one Seeker Genesis NFT.
-    Checks NFT metadata for collection verified membership.
+    Always checks mainnet — the SGT is a real mainnet NFT regardless of which
+    network the rest of the app runs on.
+    Queries both SPL Token and Token-2022 programs — the SGT may use either.
     """
-    wallet = Pubkey.from_string(wallet_address)
-    collection_mint = Pubkey.from_string(GENESIS_COLLECTION)
+    collection_address = GENESIS_COLLECTION
 
-    resp = await _rpc_post(
-        "getTokenAccountsByOwner",
-        [
-            wallet_address,
-            {"programId": str(TOKEN_PROGRAM_ID)},
-            {"encoding": "jsonParsed", "commitment": "confirmed"},
-        ],
-    )
-
-    accounts = resp.get("result", {}).get("value", [])
-    for acct in accounts:
-        parsed = acct.get("account", {}).get("data", {}).get("parsed", {})
-        info = parsed.get("info", {})
-        if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
-            mint_str = info.get("mint", "")
-            if await _is_genesis_nft(mint_str, str(collection_mint)):
-                return True
+    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
+        resp = await _rpc_post(
+            "getTokenAccountsByOwner",
+            [
+                wallet_address,
+                {"programId": str(token_program)},
+                {"encoding": "jsonParsed", "commitment": "confirmed"},
+            ],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        accounts = resp.get("result", {}).get("value", [])
+        for acct in accounts:
+            parsed = acct.get("account", {}).get("data", {}).get("parsed", {})
+            info = parsed.get("info", {})
+            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
+                mint_str = info.get("mint", "")
+                if await _is_genesis_nft(mint_str, collection_address):
+                    return True
     return False
 
 
@@ -145,6 +148,7 @@ async def _is_genesis_nft(mint_str: str, collection_address: str) -> bool:
     resp = await _rpc_post(
         "getAccountInfo",
         [str(metadata_pda), {"encoding": "base64", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
     )
     if not resp.get("result", {}).get("value"):
         return False
@@ -152,9 +156,9 @@ async def _is_genesis_nft(mint_str: str, collection_address: str) -> bool:
     data_b64 = resp["result"]["value"]["data"][0]
     data = base64.b64decode(data_b64)
 
-    # Metaplex metadata layout: verified collection entry is [0x01][32-byte pubkey]
+    # Borsh-encoded Option<Collection>: 0x01 (Some) + 0x01 (verified=true) + 32-byte pubkey
     collection_bytes = bytes(Pubkey.from_string(collection_address))
-    marker = bytes([0x01]) + collection_bytes
+    marker = bytes([0x01, 0x01]) + collection_bytes
     return marker in data
 
 

@@ -24,7 +24,7 @@ class WalletRepository @Inject constructor(
     private val tokenProvider: TokenProvider,
     @ApplicationContext private val context: Context,
 ) {
-    private val identityUri = Uri.parse("https://seekerthon.example.com")
+    private val identityUri = Uri.parse("https://seekerthon.com")
     private val iconUri = Uri.parse("favicon.ico")
     private val appName = "Seekerthon"
 

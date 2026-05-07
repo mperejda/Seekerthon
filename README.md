@@ -24,6 +24,12 @@ Web App (Next.js 14)
   └─ Participant: submit project, upload assets
 ```
 
+## Solana mobile app screens
+
+| Login | Connect | Verify | Home | Test Project |
+|-------|---------|--------|------|--------------|
+| ![Login](screenshots/Login.png) | ![Connect](screenshots/Connect.png) | ![Verify](screenshots/Verify.png) | ![Home](screenshots/Home.png) | ![Test Project](screenshots/TestProject.png) |
+
 ## Seeker Genesis NFT Verification
 
 The Android app connects via Seeker Mobile Wallet Adapter. When a user tries to vote, the backend (`/api/v1/votes/prepare`) calls `verify_seeker_genesis_holder()` which:

@@ -37,7 +37,12 @@ fun AppNavGraph() {
             HackathonListScreen(
                 onHackathonClick = { id ->
                     navController.navigate(Routes.votingFeed(id))
-                }
+                },
+                onSignOut = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(Routes.HACKATHONS) { inclusive = true }
+                    }
+                },
             )
         }
 

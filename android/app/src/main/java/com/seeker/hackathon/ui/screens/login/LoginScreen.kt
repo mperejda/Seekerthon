@@ -46,7 +46,7 @@ fun LoginScreen(
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "Vote for the best Solana projects\nand earn on-chain rewards",
+                text = "Vote for the best Solana projects",
                 fontSize = 16.sp,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
