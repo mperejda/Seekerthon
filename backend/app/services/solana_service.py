@@ -140,33 +140,76 @@ def _parse_metadata_collection(data: bytes) -> tuple[str | None, bool]:
         return None, False
 
 
+_TOKEN22_MINT_BASE = 82   # standard SPL Token mint state size
+_TOKEN_GROUP_MEMBER_TYPE = 29  # Token-2022 ExtensionType::TokenGroupMember
+
+
+def _parse_token22_group(data: bytes) -> str | None:
+    """
+    Parse a Token-2022 mint account's TLV extension list and return the
+    tokenGroupMember.group pubkey, or None if not found.
+    Layout after base mint (82 bytes): account_type(1) then TLV entries.
+    Each TLV: type(u16 LE) + length(u16 LE) + data(length bytes).
+    TokenGroupMember data: mint(32) + group(32) + member_number(u32).
+    """
+    if len(data) <= _TOKEN22_MINT_BASE:
+        return None
+    pos = _TOKEN22_MINT_BASE + 1  # skip base state + account_type byte
+    while pos + 4 <= len(data):
+        ext_type = struct.unpack_from("<H", data, pos)[0]
+        ext_len = struct.unpack_from("<H", data, pos + 2)[0]
+        pos += 4
+        if ext_type == _TOKEN_GROUP_MEMBER_TYPE and ext_len >= 64:
+            try:
+                return str(Pubkey.from_bytes(data[pos + 32: pos + 64]))
+            except Exception:
+                return None
+        pos += ext_len
+    return None
+
+
 async def _fetch_nft_collection(mint_str: str) -> tuple[str | None, bool]:
     """
     Return (collection_key, verified) for a mint.
-    Checks Token-2022 tokenGroupMember extension first (Seeker Genesis NFTs),
-    then falls back to Metaplex metadata PDA for standard SPL Token NFTs.
+    1. jsonParsed Token-2022 extensions (some RPC providers parse these)
+    2. Raw base64 TLV parse (public mainnet RPC often doesn't parse Token-2022)
+    3. Metaplex metadata PDA fallback for standard SPL Token NFTs
     """
-    # Token-2022 path: tokenGroupMember extension on the mint account itself
+    # --- Token-2022 jsonParsed ---
     try:
         resp = await _rpc_post(
             "getAccountInfo",
             [mint_str, {"encoding": "jsonParsed", "commitment": "confirmed"}],
             rpc_url=MAINNET_RPC_URL,
         )
-        extensions = (
-            resp.get("result", {}).get("value", {})
-            .get("data", {}).get("parsed", {})
-            .get("info", {}).get("extensions", [])
-        )
+        value = resp.get("result", {}).get("value") or {}
+        extensions = value.get("data", {}).get("parsed", {}).get("info", {}).get("extensions", [])
         for ext in extensions:
             if ext.get("extension") == "tokenGroupMember":
-                group = ext.get("state", {}).get("group")
+                group = (ext.get("state") or {}).get("group")
                 if group:
                     return group, True
     except Exception:
         pass
 
-    # Metaplex path: metadata PDA for standard SPL Token NFTs
+    # --- Token-2022 raw TLV (public RPC fallback) ---
+    try:
+        resp = await _rpc_post(
+            "getAccountInfo",
+            [mint_str, {"encoding": "base64", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        value = resp.get("result", {}).get("value") or {}
+        raw_list = value.get("data") or []
+        if raw_list:
+            group = _parse_token22_group(base64.b64decode(raw_list[0]))
+            if group:
+                _log.info("Token-2022 TLV group found for mint %s: %s", mint_str, group)
+                return group, True
+    except Exception as exc:
+        _log.warning("Token-2022 TLV parse failed for %s: %s", mint_str, exc)
+
+    # --- Metaplex metadata PDA ---
     try:
         mint = Pubkey.from_string(mint_str)
     except ValueError:
@@ -180,7 +223,7 @@ async def _fetch_nft_collection(mint_str: str) -> tuple[str | None, bool]:
         [str(metadata_pda), {"encoding": "base64", "commitment": "confirmed"}],
         rpc_url=MAINNET_RPC_URL,
     )
-    if not resp.get("result", {}).get("value"):
+    if not (resp.get("result", {}).get("value") or {}):
         return None, False
     data = base64.b64decode(resp["result"]["value"]["data"][0])
     return _parse_metadata_collection(data)

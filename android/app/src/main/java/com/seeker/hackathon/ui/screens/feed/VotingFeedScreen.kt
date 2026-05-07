@@ -1,5 +1,7 @@
 package com.seeker.hackathon.ui.screens.feed
 
+import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -234,17 +236,21 @@ private fun ProjectCard(
                     icon = Icons.Outlined.Code,
                     label = "Repo",
                     tint = Color.White,
-                    onClick = { /* open URL */ },
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(project.repoUrl)))
+                    },
                 )
             }
 
             // Demo link
-            if (project.demoUrl != null) {
+            if (project.demoUrl != null && !project.demoUrl.endsWith(".mp4")) {
                 ActionButton(
                     icon = Icons.Outlined.OpenInBrowser,
                     label = "Demo",
                     tint = Color.White,
-                    onClick = { /* open URL */ },
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(project.demoUrl)))
+                    },
                 )
             }
         }
