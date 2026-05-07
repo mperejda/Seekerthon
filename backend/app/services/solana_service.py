@@ -202,10 +202,16 @@ async def _fetch_nft_collection(mint_str: str) -> tuple[str | None, bool]:
         value = resp.get("result", {}).get("value") or {}
         raw_list = value.get("data") or []
         if raw_list:
-            group = _parse_token22_group(base64.b64decode(raw_list[0]))
+            raw_bytes = base64.b64decode(raw_list[0])
+            _log.info("Token-2022 TLV raw data for %s: len=%d bytes[82:86]=%s",
+                      mint_str, len(raw_bytes), raw_bytes[82:90].hex() if len(raw_bytes) > 90 else "short")
+            group = _parse_token22_group(raw_bytes)
             if group:
                 _log.info("Token-2022 TLV group found for mint %s: %s", mint_str, group)
                 return group, True
+            _log.warning("Token-2022 TLV: no tokenGroupMember found in %d bytes for mint %s", len(raw_bytes), mint_str)
+        else:
+            _log.warning("Token-2022 base64: no data returned for mint %s", mint_str)
     except Exception as exc:
         _log.warning("Token-2022 TLV parse failed for %s: %s", mint_str, exc)
 
@@ -234,6 +240,7 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
     Verifies that the wallet holds at least one Seeker Genesis NFT.
     Always checks mainnet. Queries both SPL Token and Token-2022 programs.
     """
+    _log.info("Genesis check starting for wallet %s (configured collection: %s)", wallet_address, GENESIS_COLLECTION)
     for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
         resp = await _rpc_post(
             "getTokenAccountsByOwner",
@@ -244,12 +251,19 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
             ],
             rpc_url=MAINNET_RPC_URL,
         )
-        for acct in resp.get("result", {}).get("value", []):
+        accounts = resp.get("result", {}).get("value") or []
+        _log.info("  program=%s  token accounts found: %d", token_program, len(accounts))
+        for acct in accounts:
             info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
-            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
-                collection_key, _verified = await _fetch_nft_collection(info.get("mint", ""))
+            amount = info.get("tokenAmount", {}).get("uiAmount", 0)
+            mint_str = info.get("mint", "")
+            _log.info("    mint=%s  uiAmount=%s", mint_str, amount)
+            if amount == 1:
+                collection_key, _verified = await _fetch_nft_collection(mint_str)
+                _log.info("    -> collection_key=%s  matches=%s", collection_key, collection_key == GENESIS_COLLECTION)
                 if collection_key == GENESIS_COLLECTION:
                     return True
+    _log.warning("Genesis check FAILED for wallet %s — no matching NFT found", wallet_address)
     return False
 
 
