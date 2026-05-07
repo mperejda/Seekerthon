@@ -269,74 +269,83 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
 
 
 
+MEMO_PROGRAM_ID = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
+
+
 async def build_vote_transaction(
     voter_wallet: str,
-    project_pda: str,
-    hackathon_pda: str,
-    vote_weight_bps: int,  # weight * 10000 as u16 to avoid floats on-chain
+    project_pda: str | None,
+    hackathon_pda: str | None,
+    vote_weight_bps: int,
 ) -> str:
     """
     Build an unsigned Solana transaction for casting a vote.
-    Returns base64-encoded transaction for the Android app to sign.
+
+    When the project has no on-chain PDA the wallet is connected to mainnet,
+    so we use a memo instruction with a mainnet blockhash — the memo program
+    exists on every cluster, passes simulation, and gives a real signature.
+
+    When the project has a real on-chain PDA we use the voting program on devnet.
     """
     voter = Pubkey.from_string(voter_wallet)
-    project = Pubkey.from_string(project_pda)
-    voting_program = Pubkey.from_string(VOTING_PROGRAM)
 
-    # Vote record PDA: seeds = [b"vote", voter, project]
-    vote_record_pda, _ = Pubkey.find_program_address(
-        [b"vote", bytes(voter), bytes(project)],
-        voting_program,
-    )
+    if not project_pda:
+        # Memo path: mainnet, always simulates cleanly
+        instruction = Instruction(
+            program_id=MEMO_PROGRAM_ID,
+            accounts=[AccountMeta(pubkey=voter, is_signer=True, is_writable=False)],
+            data=f"seeker-vote:bps={vote_weight_bps}".encode(),
+        )
+        bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+    else:
+        # Full voting-program path: devnet
+        project = Pubkey.from_string(project_pda)
+        voting_program = Pubkey.from_string(VOTING_PROGRAM)
+        vote_record_pda, _ = Pubkey.find_program_address(
+            [b"vote", bytes(voter), bytes(project)], voting_program
+        )
+        discriminator = bytes([0x14, 0xD4, 0x0F, 0xBD, 0x45, 0xB4, 0x45, 0x97])
+        instruction = Instruction(
+            program_id=voting_program,
+            accounts=[
+                AccountMeta(pubkey=voter, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=project, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=vote_record_pda, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            ],
+            data=discriminator + struct.pack("<H", vote_weight_bps),
+        )
+        bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
 
-    # sha256("global:cast_vote")[:8]
-    discriminator = bytes([0x14, 0xD4, 0x0F, 0xBD, 0x45, 0xB4, 0x45, 0x97])
-
-    ix_data = discriminator + struct.pack("<H", vote_weight_bps)
-
-    instruction = Instruction(
-        program_id=voting_program,
-        accounts=[
-            AccountMeta(pubkey=voter, is_signer=True, is_writable=True),
-            AccountMeta(pubkey=project, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=vote_record_pda, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-        ],
-        data=ix_data,
-    )
-
-    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
     blockhash_str = bh_resp["result"]["value"]["blockhash"]
     recent_blockhash = Hash.from_string(blockhash_str)
-
     msg = Message.new_with_blockhash([instruction], voter, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
-
     return base64.b64encode(bytes(tx)).decode()
 
 
-async def verify_transaction_on_chain(tx_signature: str, project_pda: str, voter_wallet: str) -> bool:
+async def verify_transaction_on_chain(tx_signature: str, project_pda: str | None, voter_wallet: str) -> bool:
     """
-    Confirm a vote transaction landed on-chain and matches expected accounts.
-    Checks: tx succeeded, voter is a signer, project PDA is referenced,
-    and at least one instruction targets the voting program.
+    Confirm a vote transaction landed on-chain and the voter signed it.
+    Memo transactions (no project_pda) are verified on mainnet.
+    Voting-program transactions are verified on devnet.
     """
+    rpc = MAINNET_RPC_URL if not project_pda else RPC_URL
     resp = await _rpc_post(
         "getTransaction",
         [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+        rpc_url=rpc,
     )
-    tx = resp.get("result")
-    if not tx:
+    tx_data = resp.get("result")
+    if not tx_data:
         return False
-    if tx.get("meta", {}).get("err") is not None:
+    if tx_data.get("meta", {}).get("err") is not None:
         return False
 
-    message = tx.get("transaction", {}).get("message", {})
-    account_keys = message.get("accountKeys", [])
-
-    all_pubkeys: set = set()
+    message = tx_data.get("transaction", {}).get("message", {})
     signer_pubkeys: set = set()
-    for acc in account_keys:
+    all_pubkeys: set = set()
+    for acc in message.get("accountKeys", []):
         if isinstance(acc, dict):
             pk = acc.get("pubkey", "")
             all_pubkeys.add(pk)
@@ -347,12 +356,13 @@ async def verify_transaction_on_chain(tx_signature: str, project_pda: str, voter
 
     if voter_wallet not in signer_pubkeys:
         return False
+    if not project_pda:
+        return True  # memo tx: voter signed + tx succeeded is sufficient
+
     if project_pda not in all_pubkeys:
         return False
     if VOTING_PROGRAM not in all_pubkeys:
         return False
-
-    # At least one instruction must target the voting program
     instructions = message.get("instructions", [])
     return any(
         isinstance(ix, dict) and ix.get("programId") == VOTING_PROGRAM
