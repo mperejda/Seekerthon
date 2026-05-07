@@ -19,3 +19,4 @@ default = []
 [dependencies]
 anchor-lang = { version = "0.30.1" }
 anchor-spl = { version = "0.30.1", features = ["token", "associated_token"] }
+proc-macro2 = { workspace = true }
