@@ -452,6 +452,11 @@ private fun YouTubeWebPlayer(videoId: String, modifier: Modifier = Modifier) {
                     mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
                     useWideViewPort = true
+                    // YouTube blocks the default Android WebView UA — spoof Chrome so
+                    // it serves the real player instead of a white/blocked page.
+                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
+                        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                        "Chrome/124.0.0.0 Mobile Safari/537.36"
                 }
                 wv.loadUrl(
                     "https://www.youtube.com/embed/$videoId" +
