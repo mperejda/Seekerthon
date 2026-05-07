@@ -32,7 +32,15 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     user_id = request.state.user_id
     wallet = request.state.wallet_address
 
-    is_verified = await verify_seeker_genesis_holder(wallet)
+    # Fast path: use the flag cached at login time.
+    # Fall back to a live mainnet check if the DB says False — handles the case
+    # where the collection address was fixed after the user last logged in.
+    user_row = db.table("users").select("is_seeker_verified").eq("id", user_id).single().execute()
+    is_verified = (user_row.data or {}).get("is_seeker_verified", False)
+    if not is_verified:
+        is_verified = await verify_seeker_genesis_holder(wallet)
+        if is_verified:
+            db.table("users").update({"is_seeker_verified": True}).eq("id", user_id).execute()
     if not is_verified:
         raise HTTPException(status_code=403, detail="Must hold a Seeker Genesis NFT to vote")
 

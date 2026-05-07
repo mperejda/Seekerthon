@@ -13,6 +13,7 @@ from app.services.solana_service import (
     get_skr_balance,
     compute_vote_weight,
     verify_seeker_genesis_holder,
+    get_wallet_nft_collections,
 )
 
 router = APIRouter()
@@ -112,6 +113,23 @@ async def get_me(request: Request):
     }).eq("id", user_id).execute()
 
     return UserResponse(**result.data[0])
+
+
+@router.get("/debug/genesis/{wallet_address}")
+async def debug_genesis_check(wallet_address: str):
+    """
+    Returns every NFT in the wallet with its on-chain collection key.
+    Use this to find the correct SEEKER_GENESIS_COLLECTION address when
+    the genesis check is failing for a known holder.
+    """
+    nfts = await get_wallet_nft_collections(wallet_address)
+    verified = any(n["matches_config"] for n in nfts)
+    return {
+        "wallet": wallet_address,
+        "configured_collection": __import__("app.config", fromlist=["get_settings"]).get_settings().seeker_genesis_collection,
+        "genesis_check_passes": verified,
+        "nfts": nfts,
+    }
 
 
 @router.get("/{user_id}", response_model=UserResponse)

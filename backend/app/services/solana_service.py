@@ -104,43 +104,48 @@ def compute_vote_weight(skr_staked: int) -> float:
     return round(min(raw, MAX_MULTIPLIER), 4)
 
 
-async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
+def _parse_metadata_collection(data: bytes) -> tuple[str | None, bool]:
     """
-    Verifies that the wallet holds at least one Seeker Genesis NFT.
-    Always checks mainnet — the SGT is a real mainnet NFT regardless of which
-    network the rest of the app runs on.
-    Queries both SPL Token and Token-2022 programs — the SGT may use either.
+    Proper Borsh parser for a Metaplex token metadata account.
+    Layout: key(1) + update_authority(32) + mint(32) + name(str) + symbol(str) +
+            uri(str) + seller_fee_bps(u16) + creators(Option<Vec<Creator>>) +
+            primary_sale(bool) + is_mutable(bool) + edition_nonce(Option<u8>) +
+            token_standard(Option<u8>) + collection(Option<Collection>)
+    Returns (collection_key_b58, verified) or (None, False) on any parse error.
     """
-    collection_address = GENESIS_COLLECTION
+    try:
+        pos = 1 + 32 + 32  # key + update_authority + mint
+        for _ in range(3):  # name, symbol, uri — each is u32 len prefix + bytes
+            length = struct.unpack_from("<I", data, pos)[0]
+            pos += 4 + length
+        pos += 2  # seller_fee_basis_points (u16)
+        # creators: Option<Vec<Creator>>  Creator = pubkey(32) + verified(1) + share(1)
+        if data[pos]:
+            pos += 1
+            count = struct.unpack_from("<I", data, pos)[0]
+            pos += 4 + count * 34
+        else:
+            pos += 1
+        pos += 2  # primary_sale_happened(bool) + is_mutable(bool)
+        pos += 2 if data[pos] else 1  # edition_nonce: Option<u8>
+        pos += 2 if data[pos] else 1  # token_standard: Option<u8>
+        # collection: Option<Collection>  = verified(bool) + key(Pubkey)
+        if data[pos]:
+            pos += 1
+            verified = bool(data[pos])
+            key = str(Pubkey.from_bytes(data[pos + 1: pos + 33]))
+            return key, verified
+        return None, False
+    except Exception:
+        return None, False
 
-    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
-        resp = await _rpc_post(
-            "getTokenAccountsByOwner",
-            [
-                wallet_address,
-                {"programId": str(token_program)},
-                {"encoding": "jsonParsed", "commitment": "confirmed"},
-            ],
-            rpc_url=MAINNET_RPC_URL,
-        )
-        accounts = resp.get("result", {}).get("value", [])
-        for acct in accounts:
-            parsed = acct.get("account", {}).get("data", {}).get("parsed", {})
-            info = parsed.get("info", {})
-            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
-                mint_str = info.get("mint", "")
-                if await _is_genesis_nft(mint_str, collection_address):
-                    return True
-    return False
 
-
-async def _is_genesis_nft(mint_str: str, collection_address: str) -> bool:
-    """Check on-chain metadata to confirm NFT belongs to the Genesis collection."""
+async def _fetch_nft_collection(mint_str: str) -> tuple[str | None, bool]:
+    """Fetch and parse the Metaplex metadata for a mint. Returns (collection_key, verified)."""
     try:
         mint = Pubkey.from_string(mint_str)
     except ValueError:
-        return False
-
+        return None, False
     metadata_pda, _ = Pubkey.find_program_address(
         [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint)],
         METADATA_PROGRAM_ID,
@@ -151,15 +156,60 @@ async def _is_genesis_nft(mint_str: str, collection_address: str) -> bool:
         rpc_url=MAINNET_RPC_URL,
     )
     if not resp.get("result", {}).get("value"):
-        return False
+        return None, False
+    data = base64.b64decode(resp["result"]["value"]["data"][0])
+    return _parse_metadata_collection(data)
 
-    data_b64 = resp["result"]["value"]["data"][0]
-    data = base64.b64decode(data_b64)
 
-    # Borsh-encoded Option<Collection>: 0x01 (Some) + 0x01 (verified=true) + 32-byte pubkey
-    collection_bytes = bytes(Pubkey.from_string(collection_address))
-    marker = bytes([0x01, 0x01]) + collection_bytes
-    return marker in data
+async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
+    """
+    Verifies that the wallet holds at least one Seeker Genesis NFT.
+    Always checks mainnet. Queries both SPL Token and Token-2022 programs.
+    """
+    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
+        resp = await _rpc_post(
+            "getTokenAccountsByOwner",
+            [
+                wallet_address,
+                {"programId": str(token_program)},
+                {"encoding": "jsonParsed", "commitment": "confirmed"},
+            ],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        for acct in resp.get("result", {}).get("value", []):
+            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
+                collection_key, _verified = await _fetch_nft_collection(info.get("mint", ""))
+                if collection_key == GENESIS_COLLECTION:
+                    return True
+    return False
+
+
+async def get_wallet_nft_collections(wallet_address: str) -> list[dict]:
+    """
+    Return every NFT held by a wallet with its collection key and whether it matches
+    the configured GENESIS_COLLECTION. Used by the debug endpoint to diagnose
+    genesis-check failures when the collection address in .env may be wrong.
+    """
+    results = []
+    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
+        resp = await _rpc_post(
+            "getTokenAccountsByOwner",
+            [wallet_address, {"programId": str(token_program)}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        for acct in resp.get("result", {}).get("value", []):
+            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
+                mint_str = info.get("mint", "")
+                collection_key, verified = await _fetch_nft_collection(mint_str)
+                results.append({
+                    "mint": mint_str,
+                    "collection_key": collection_key,
+                    "verified": verified,
+                    "matches_config": collection_key == GENESIS_COLLECTION,
+                })
+    return results
 
 
 async def build_vote_transaction(
