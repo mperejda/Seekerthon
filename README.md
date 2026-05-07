@@ -1,12 +1,64 @@
 # Seeker Hackathon Platform
 
-TikTok-style hackathon voting for Seeker users. Only Seeker Genesis NFT holders can vote. $SKR stakers get weighted votes (up to 5×). Prize pools are held in Solana escrow and released by the organizer after verifying winning teams' tech.
+> TikTok-style hackathon voting gated to Seeker Genesis NFT holders, with $SKR staker vote weighting and trustless Solana prize escrow.
+
+## What It Solves
+
+Hackathon voting is typically opaque, gameable, and centralized: a small panel of judges picks winners, prize payouts require trusting an organizer with funds, and the broader community has no meaningful voice. The Seeker ecosystem already has a built-in reputation signal — Genesis NFT holders and $SKR stakers — but no venue to express it.
+
+**Seeker Hackathon Platform** fixes this in four ways:
+
+- **Community-gated voting.** Only verified Seeker Genesis NFT holders can vote, checked against Solana mainnet at the moment of every vote. No whitelist to manage, no admin override possible.
+- **Stake-weighted influence.** $SKR stakers receive up to 5× vote weight, calculated from the on-chain staking vault PDA at signing time. Influence scales with commitment to the ecosystem, not with how many accounts someone creates.
+- **Trustless prize custody.** Prize pools sit in a Solana escrow PDA controlled by the program, not the backend or organizer. The organizer signs a `release_prize` transaction after verifying winners' tech; funds can only move on-chain, not through the server.
+- **Engaging discovery.** A TikTok-style vertical swipe feed gives every project organic reach so builders don't need social capital to get seen.
+
+## How It Was Built
+
+The platform is four interconnected layers:
+
+**Android app (Kotlin + Jetpack Compose)** — the primary voting client. Users connect their Seeker wallet via Mobile Wallet Adapter, browse projects in a swipe feed, and tap to vote. The app never touches a private key: it passes unsigned transactions to Seed Vault for on-device signing and broadcasting.
+
+**FastAPI backend (Python)** — the coordination layer. It verifies Genesis NFT ownership on Solana mainnet before building any vote transaction, reads $SKR staking balances from the vault PDA to compute vote weight, and confirms submitted transaction signatures on-chain before writing votes to Supabase. It holds no funds and signs no transactions on behalf of users.
+
+**Solana programs (Anchor / Rust)** — the trust layer. A `voting` program records weighted votes immutably; an `escrow` program holds USDC prize pools in a PDA and enforces release conditions. Neither program can be bypassed by the backend.
+
+**Web app (Next.js 14)** — the organizer dashboard. Hackathon creators fund the escrow and set rules; after judging they verify the winning team's tech and sign the `release_prize` transaction to pay out winners directly on-chain.
+
+Supabase provides Postgres for structured data, Realtime subscriptions for live vote-count updates across all clients, and Storage for demo videos and screenshots.
+
+## Technical Description
+
+### SDKs and libraries used
+
+| Layer | Technology |
+|-------|-----------|
+| Wallet auth & tx signing | Solana Mobile Wallet Adapter — `MobileWalletAdapter` Kotlin SDK |
+| NFT gating | Metaplex Token Metadata program — PDA derivation + raw account parsing |
+| On-chain programs | Anchor (Rust) — `cast_vote` and `release_prize` instructions |
+| Python ↔ Solana | `solders` + `anchorpy` |
+| Backend | FastAPI + Pydantic v2 |
+| Database / Realtime / Storage | Supabase Postgres, Realtime, Storage, Edge Functions |
+| Android UI | Jetpack Compose + Hilt + Retrofit |
+| Web UI | Next.js 14 + TypeScript |
+
+### What made this uniquely possible on Seeker
+
+**Seed Vault** is the feature that makes on-chain voting safe at scale. Every vote is a real Solana transaction signed inside the Seeker device's hardware-backed Seed Vault — the private key never reaches the app or the backend. This is only possible because Seeker ships Mobile Wallet Adapter natively: no QR-code bridging, no extension wallet, no custodial compromise. The UX is a single tap, not a multi-step signing ceremony.
+
+**Seeker Genesis NFT collection** provides a hardcoded, censorship-resistant access control list. The backend reads Metaplex on-chain metadata at vote-prepare time rather than maintaining any whitelist, so there is no admin key that can grant or revoke voting rights after the fact. Community membership is the NFT — and that is on-chain.
+
+**$SKR staking vault PDA** gives the platform a permissionless reputation signal with no oracle dependency. Vote weight is derived directly from `seeds = ["stake", wallet, mint]` at transaction-prepare time, locked in before signing, and verified again at confirmation. There is no window between signing and broadcast where the weight can be manipulated.
+
+**Solana's sub-cent fees and 400ms finality** make recording every vote on-chain economically viable. The same architecture on a higher-fee chain would cost voters dollars per tap and minutes of latency per confirmation, which would break the real-time, TikTok-style UX entirely.
 
 ## Demo
 
-| Web App | Mobile App |
-|---------|------------|
-| <a href="https://youtu.be/TxJNYVNTCuU" target="_blank"><img src="https://img.youtube.com/vi/TxJNYVNTCuU/0.jpg" alt="Web App Demo"></a> | <a href="https://youtube.com/shorts/mUMq7XHoo6c?feature=share" target="_blank"><img src="https://img.youtube.com/vi/mUMq7XHoo6c/0.jpg" alt="Mobile App Demo"></a> |
+[Slide Deck](https://canva.link/hn75qwwd42cvkej)
+
+| Project Explainer | Web App | Mobile App |
+|-------------------|---------|------------|
+| <a href="https://youtu.be/P-QDswte3ug" target="_blank"><img src="https://img.youtube.com/vi/P-QDswte3ug/0.jpg" alt="Project Explainer"></a> | <a href="https://youtu.be/TxJNYVNTCuU" target="_blank"><img src="https://img.youtube.com/vi/TxJNYVNTCuU/0.jpg" alt="Web App Demo"></a> | <a href="https://youtube.com/shorts/mUMq7XHoo6c?feature=share" target="_blank"><img src="https://img.youtube.com/vi/mUMq7XHoo6c/0.jpg" alt="Mobile App Demo"></a> |
 
 ## Architecture
 
