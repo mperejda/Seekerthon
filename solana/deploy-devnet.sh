@@ -4,6 +4,11 @@
 # Run locally:        ./deploy-devnet.sh  (requires anchor, solana CLI)
 set -euo pipefail
 
+# Ensure all tools are on PATH regardless of how the script is invoked
+export PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
+export PATH="/root/.cargo/bin:$PATH"
+export PATH="/root/.avm/bin:$PATH"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
