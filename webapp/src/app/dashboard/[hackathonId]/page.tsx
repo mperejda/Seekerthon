@@ -134,6 +134,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
     }
   };
 
+  const votingEnded = hackathon ? new Date() >= new Date(hackathon.voting_end) : false;
   const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
 
   return (
@@ -172,9 +173,14 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
         )}
       </div>
 
-      {hackathonStatus === "voting" && (
+      {hackathonStatus === "voting" && !votingEnded && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
-          <strong>Voting in progress.</strong> Review the leaderboard below and click <em>Verify &amp; Release Prize</em> on the winning project when ready.
+          <strong>Voting in progress.</strong> Verify &amp; Release will become available once the voting period ends.
+        </div>
+      )}
+      {hackathonStatus === "voting" && votingEnded && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
+          <strong>Voting has ended.</strong> Review the leaderboard below and click <em>Verify &amp; Release Prize</em> on the winning project.
         </div>
       )}
       {hackathonStatus === "verifying" && (
@@ -256,7 +262,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-bold text-purple-600">{project.vote_count.toFixed(1)}</div>
                   <div className="text-xs text-gray-400 mb-3">weighted votes</div>
-                  {project.status !== "winner" && (
+                  {project.status !== "winner" && votingEnded && (
                     <button
                       onClick={() => verifyAndRelease(project.id)}
                       disabled={verifying === project.id || !publicKey}
