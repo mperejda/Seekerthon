@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import javax.inject.Inject
 
 data class FeedUiState(
@@ -119,6 +120,19 @@ class VotingFeedViewModel @Inject constructor(
                     votingProjectId = null,
                     voteSuccessMessage = "Voted! Weight: ${prepare.vote_weight}×",
                 )
+            } catch (e: HttpException) {
+                if (e.code() == 409) {
+                    _state.value = _state.value.copy(
+                        votedProjectIds = _state.value.votedProjectIds + projectId,
+                        votingProjectId = null,
+                        error = "You've already voted for this project",
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        votingProjectId = null,
+                        error = e.message ?: "Vote failed",
+                    )
+                }
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     votingProjectId = null,
