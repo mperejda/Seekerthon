@@ -36,8 +36,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.browser.customtabs.CustomTabsIntent
 import com.seeker.hackathon.domain.model.Project
 import com.seeker.hackathon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
@@ -184,23 +183,21 @@ private fun ProjectCard(
     val context = LocalContext.current
 
     val youtubeId = project.demoUrl?.let { extractYouTubeId(it) }
-    var youtubeIsPlaying by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        // Background: YouTube embed, mp4, image, or gradient placeholder
+        // Background: YouTube thumbnail, mp4, image, or gradient placeholder
         when {
-            youtubeId != null -> if (youtubeIsPlaying) {
-                YouTubeWebPlayer(
-                    videoId = youtubeId,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                YouTubeThumbnail(
-                    videoId = youtubeId,
-                    onPlay = { youtubeIsPlaying = true },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            youtubeId != null -> YouTubeThumbnail(
+                videoId = youtubeId,
+                onPlay = {
+                    CustomTabsIntent.Builder()
+                        .setUrlBarHidingEnabled(true)
+                        .setShowTitle(false)
+                        .build()
+                        .launchUrl(context, Uri.parse(project.demoUrl!!))
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
             project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true -> VideoPlayer(
                 url = project.demoUrl,
                 modifier = Modifier.fillMaxSize(),
@@ -437,40 +434,6 @@ private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modi
     }
 }
 
-@Composable
-private fun YouTubeWebPlayer(videoId: String, modifier: Modifier = Modifier) {
-    var webView by remember { mutableStateOf<WebView?>(null) }
-
-    AndroidView(
-        factory = { context ->
-            WebView(context).also { wv ->
-                webView = wv
-                wv.webViewClient = WebViewClient()
-                wv.settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    mediaPlaybackRequiresUserGesture = false
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
-                    // YouTube blocks the default Android WebView UA — spoof Chrome so
-                    // it serves the real player instead of a white/blocked page.
-                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
-                        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                        "Chrome/124.0.0.0 Mobile Safari/537.36"
-                }
-                wv.loadUrl(
-                    "https://www.youtube.com/embed/$videoId" +
-                    "?autoplay=1&playsinline=1&rel=0&controls=1&fs=1"
-                )
-            }
-        },
-        modifier = modifier,
-    )
-
-    DisposableEffect(Unit) {
-        onDispose { webView?.destroy() }
-    }
-}
 
 @Composable
 private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
