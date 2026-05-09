@@ -30,6 +30,19 @@ async def prepare_builder_pass_mint(request: Request):
         _log.exception("Failed to build builder pass mint transaction")
         raise HTTPException(status_code=500, detail=str(exc))
 
+    # Simulate with sigVerify=false so we catch program errors before the wallet sees the tx
+    sim = await _rpc_post(
+        "simulateTransaction",
+        [tx_b64, {"encoding": "base64", "commitment": "confirmed",
+                  "replaceRecentBlockhash": True, "sigVerify": False}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    sim_val = sim.get("result", {}).get("value", {})
+    if sim_val.get("err"):
+        logs = sim_val.get("logs") or []
+        _log.error("Mint simulation failed: %s | logs: %s", sim_val["err"], logs)
+        raise HTTPException(status_code=500, detail=f"Mint simulation failed: {sim_val['err']} — {logs}")
+
     return MintPrepareResponse(transaction_b64=tx_b64, mint_address=mint_address)
 
 
