@@ -7,10 +7,8 @@ from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import MintConfirmResponse
 from app.services.solana_service import (
-    build_usdc_transfer_transaction,
-    mint_builder_pass_server_side,
-    submit_and_confirm_transaction,
-    verify_usdc_payment,
+    build_partial_signed_mint_transaction,
+    submit_mint_transaction,
 )
 
 router = APIRouter()
@@ -19,15 +17,15 @@ _settings = get_settings()
 
 
 class PrepareResponse(BaseModel):
-    transaction_b64: str       # unsigned payment tx for the wallet to sign
-    amount_raw: int            # raw USDC units (6 decimals)
-    amount_display: str        # human-readable USDC e.g. "0.01"
-    sol_fee_lamports: int      # SOL sent to authority to cover NFT mint costs
-    sol_fee_display: str       # human-readable SOL e.g. "0.025"
+    transaction_b64: str
+    amount_raw: int
+    amount_display: str
+    sol_fee_lamports: int
+    sol_fee_display: str
 
 
 class ClaimRequest(BaseModel):
-    signed_tx_b64: str     # wallet-signed USDC transfer tx (base64); backend submits it
+    signed_tx_b64: str
 
 
 def _already_owns(user_id: str) -> bool:
@@ -38,50 +36,41 @@ def _already_owns(user_id: str) -> bool:
 
 @router.post("/builder-pass/prepare", response_model=PrepareResponse)
 async def prepare_builder_pass_mint(request: Request):
-    """Return an unsigned USDC transfer transaction for the wallet to sign and send."""
+    """
+    Build and return a partially-signed combined transaction (payment + NFT mint).
+    The buyer's wallet must add the final signature; submission happens in /claim.
+    Atomic: either payment AND NFT land, or neither does.
+    """
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
     price = _settings.builder_pass_price_usdc
     try:
-        tx_b64 = await build_usdc_transfer_transaction(request.state.wallet_address, price)
+        tx_b64, amount_raw, amount_display, sol_fee, sol_fee_display = \
+            await build_partial_signed_mint_transaction(request.state.wallet_address, price)
     except Exception as exc:
-        _log.exception("Failed to build USDC transfer transaction")
+        _log.exception("Failed to build combined mint transaction")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    sol_fee = _settings.builder_pass_sol_fee_lamports
     return PrepareResponse(
         transaction_b64=tx_b64,
-        amount_raw=price,
-        amount_display=f"{price / 1_000_000:.6g}",
+        amount_raw=amount_raw,
+        amount_display=amount_display,
         sol_fee_lamports=sol_fee,
-        sol_fee_display=f"{sol_fee / 1_000_000_000:.6g}",
+        sol_fee_display=sol_fee_display,
     )
 
 
 @router.post("/builder-pass/claim", response_model=MintConfirmResponse)
 async def claim_builder_pass(request: Request, body: ClaimRequest):
-    """Verify USDC payment then mint the Builder Pass NFT server-side."""
+    """Submit the buyer-signed combined tx. Payment and NFT mint confirm atomically."""
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
-    price = _settings.builder_pass_price_usdc
-
-    # Skip payment when price is 0; otherwise backend submits the signed tx and verifies
-    if price > 0:
-        try:
-            tx_sig = await submit_and_confirm_transaction(body.signed_tx_b64)
-        except Exception as exc:
-            _log.exception("USDC payment submission failed")
-            raise HTTPException(status_code=402, detail=f"Payment transaction failed: {exc}")
-        paid = await verify_usdc_payment(tx_sig, request.state.wallet_address, price)
-        if not paid:
-            raise HTTPException(status_code=402, detail="USDC payment not confirmed")
-
     try:
-        mint_sig = await mint_builder_pass_server_side(request.state.wallet_address)
+        mint_sig = await submit_mint_transaction(body.signed_tx_b64)
     except Exception as exc:
-        _log.exception("Builder pass mint failed")
+        _log.exception("Combined mint tx submission failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
     db = get_supabase_admin()

@@ -143,13 +143,18 @@ def _borsh_str(s: str) -> bytes:
     return struct.pack("<I", len(enc)) + enc
 
 
-async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
+async def build_partial_signed_mint_transaction(
+    buyer_wallet: str,
+    usdc_amount: int,
+) -> tuple[str, int, str, int, str]:
     """
-    Fully server-side NFT mint — authority keypair is fee payer and sole signer.
-    No user wallet interaction required. Returns the confirmed tx signature.
+    Build a combined payment + NFT-mint transaction, pre-signed by authority_kp and mint_kp.
+    The buyer's wallet must add the final signature before submission.
+
+    All 9 instructions are atomic — either payment AND NFT mint both land, or neither does.
+    Returns (partial_tx_b64, amount_raw, amount_display, sol_fee_lamports, sol_fee_display).
     """
     settings = _settings
-
     authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
     authority_pk = authority_kp.pubkey()
 
@@ -157,8 +162,12 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     mint_pk = mint_kp.pubkey()
 
     buyer_pk = Pubkey.from_string(buyer_wallet)
+    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
+    treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
     collection_mint_pk = Pubkey.from_string(settings.builder_pass_collection_mint)
 
+    buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
+    treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
     buyer_nft_ata = _find_ata(buyer_pk, mint_pk)
 
     metadata_pda, _ = Pubkey.find_program_address(
@@ -171,12 +180,51 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     )
 
     SYSVAR_RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
+    sol_fee = settings.builder_pass_sol_fee_lamports
 
-    # Rent exemption for the 82-byte mint account
     rent_resp = await _rpc_post("getMinimumBalanceForRentExemption", [82], rpc_url=MAINNET_RPC_URL)
     mint_rent = rent_resp["result"]
 
-    # 1. CreateAccount — authority pays for the new mint account
+    # ── Payment instructions (buyer signs) ──────────────────────────────────
+
+    # 1. Idempotent create treasury USDC ATA (no-op if already exists)
+    ix_create_treasury_ata = Instruction(
+        program_id=ASSOCIATED_TOKEN_PROGRAM,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=treasury_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=bytes([1]),
+    )
+
+    # 2. USDC transfer: buyer → treasury
+    ix_usdc_transfer = Instruction(
+        program_id=TOKEN_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=False),
+        ],
+        data=bytes([3]) + struct.pack("<Q", usdc_amount),
+    )
+
+    # 3. SOL transfer: buyer → authority (covers on-chain NFT mint costs)
+    ix_sol_transfer = Instruction(
+        program_id=SYSTEM_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=True),
+        ],
+        data=struct.pack("<I", 2) + struct.pack("<Q", sol_fee),
+    )
+
+    # ── NFT mint instructions (authority_kp + mint_kp sign) ─────────────────
+
+    # 4. CreateAccount — authority pays rent for the new mint account
     ix_create_account = Instruction(
         program_id=SYSTEM_PROGRAM_ID,
         accounts=[
@@ -184,15 +232,15 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
             AccountMeta(pubkey=mint_pk, is_signer=True, is_writable=True),
         ],
         data=(
-            struct.pack("<I", 0)             # SystemInstruction::CreateAccount
-            + struct.pack("<Q", mint_rent)   # lamports
-            + struct.pack("<Q", 82)          # space (mint state)
-            + bytes(TOKEN_PROGRAM_ID)        # owner
+            struct.pack("<I", 0)
+            + struct.pack("<Q", mint_rent)
+            + struct.pack("<Q", 82)
+            + bytes(TOKEN_PROGRAM_ID)
         ),
     )
 
-    # 2. InitializeMint — 0 decimals; freeze_authority must be set for Metaplex Master Edition
-    # SPL Token COption<Pubkey> packs as: 1-byte discriminant (0=None, 1=Some) + 32-byte pubkey
+    # 5. InitializeMint — 0 decimals, freeze_authority set for Metaplex Master Edition
+    # SPL Token COption<Pubkey>: 1-byte discriminant (0=None, 1=Some) + 32-byte pubkey
     ix_init_mint = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -200,16 +248,16 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
         ],
         data=(
-            bytes([0])                      # InitializeMint
-            + bytes([0])                    # decimals
-            + bytes(authority_pk)           # mint_authority (32 bytes)
-            + bytes([1])                    # freeze_authority = COption::Some (1 byte, not 4)
-            + bytes(authority_pk)           # freeze_authority pubkey (32 bytes)
+            bytes([0])
+            + bytes([0])
+            + bytes(authority_pk)
+            + bytes([1])
+            + bytes(authority_pk)
         ),
     )
 
-    # 3. Create buyer's NFT ATA (authority pays, buyer is the owner)
-    ix_create_ata = Instruction(
+    # 6. Create buyer's NFT ATA (authority pays)
+    ix_create_nft_ata = Instruction(
         program_id=ASSOCIATED_TOKEN_PROGRAM,
         accounts=[
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),
@@ -222,7 +270,7 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
         data=bytes([1]),
     )
 
-    # 4. MintTo — 1 token to buyer's ATA
+    # 7. MintTo — 1 token to buyer's ATA
     ix_mint_to = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -233,7 +281,7 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
         data=bytes([7]) + struct.pack("<Q", 1),
     )
 
-    # 5. CreateMetadataAccountV3 — authority is mint_authority, payer, and update_authority
+    # 8. CreateMetadataAccountV3
     ix_create_metadata = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
@@ -250,18 +298,18 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
             + _borsh_str("Alpine Labs Builder Pass")
             + _borsh_str("ALBP")
             + _borsh_str(settings.builder_pass_metadata_uri)
-            + struct.pack("<H", 0)             # seller_fee_basis_points
+            + struct.pack("<H", 0)
             + bytes([0])                       # creators: None
             + bytes([1])                       # collection: Some
             + bytes([0])                       # verified = false
-            + bytes(collection_mint_pk)        # collection key
+            + bytes(collection_mint_pk)
             + bytes([0])                       # uses: None
             + bytes([1])                       # is_mutable = true
             + bytes([0])                       # collection_details: None
         ),
     )
 
-    # 6. CreateMasterEditionV3 — max_supply = Some(0), authority is update_authority, mint_authority, and payer
+    # 9. CreateMasterEditionV3 — max_supply = Some(0)
     ix_create_edition = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
@@ -281,15 +329,20 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
 
-    msg = Message.new_with_blockhash(
-        [ix_create_account, ix_init_mint, ix_create_ata, ix_mint_to, ix_create_metadata, ix_create_edition],
-        authority_pk,
-        recent_blockhash,
-    )
+    instructions = [
+        ix_create_treasury_ata, ix_usdc_transfer, ix_sol_transfer,
+        ix_create_account, ix_init_mint, ix_create_nft_ata,
+        ix_mint_to, ix_create_metadata, ix_create_edition,
+    ]
+
+    # Authority is fee payer; buyer is a co-signer only for the payment instructions
+    msg = Message.new_with_blockhash(instructions, authority_pk, recent_blockhash)
+
+    # Partially sign: fills authority (slot 0) and mint_kp slots; buyer slot stays empty (zeros)
     tx = Transaction([authority_kp, mint_kp], msg, recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
-    # Simulate before submitting
+    # Pre-flight: simulate with sigVerify=False (buyer hasn't signed yet)
     sim = await _rpc_post(
         "simulateTransaction",
         [tx_b64, {"encoding": "base64", "commitment": "confirmed", "sigVerify": False}],
@@ -298,30 +351,45 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     sim_val = sim.get("result", {}).get("value", {})
     if sim_val.get("err"):
         logs = sim_val.get("logs") or []
-        raise ValueError(f"Mint simulation failed: {sim_val['err']} — {logs}")
+        raise ValueError(f"Combined mint simulation failed: {sim_val['err']} — {logs}")
 
-    # Submit — skip preflight since we already simulated above
-    send = await _rpc_post("sendTransaction", [tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}], rpc_url=MAINNET_RPC_URL)
-    if "error" in send:
-        raise ValueError(f"sendTransaction failed: {send['error']}")
+    _log.info("Combined mint tx built and simulated OK for buyer=%s", buyer_wallet)
+    return (
+        tx_b64,
+        usdc_amount,
+        f"{usdc_amount / 1_000_000:.6g}",
+        sol_fee,
+        f"{sol_fee / 1_000_000_000:.6g}",
+    )
 
-    tx_sig = send["result"]
-    _log.info("Builder pass mint submitted: %s", tx_sig)
 
-    # Poll for confirmation
+async def submit_mint_transaction(signed_tx_b64: str) -> str:
+    """Submit the fully-signed combined mint tx and return the confirmed signature."""
+    resp = await _rpc_post(
+        "sendTransaction",
+        [signed_tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    if "error" in resp:
+        raise Exception(f"sendTransaction failed: {resp['error']}")
+    sig = resp["result"]
+    _log.info("Combined mint tx submitted: %s", sig)
+
     for _ in range(30):
         await asyncio.sleep(2)
-        confirm = await _rpc_post(
-            "getTransaction",
-            [tx_sig, {"commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+        conf = await _rpc_post(
+            "getSignatureStatuses",
+            [[sig], {"searchTransactionHistory": True}],
             rpc_url=MAINNET_RPC_URL,
         )
-        if confirm.get("result"):
-            if confirm["result"].get("meta", {}).get("err"):
-                raise ValueError("Transaction failed on-chain")
-            return tx_sig
+        status = ((conf.get("result") or {}).get("value") or [None])[0]
+        if status:
+            if status.get("err") is not None:
+                raise Exception(f"Combined mint tx failed on-chain: {status['err']}")
+            if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                return sig
 
-    raise ValueError("Transaction confirmation timeout")
+    raise Exception("Combined mint tx not confirmed within 60 seconds")
 
 
 async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) -> str:
