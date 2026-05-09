@@ -198,7 +198,7 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
         ),
     )
 
-    # 2. InitializeMint — 0 decimals, authority = builder pass authority
+    # 2. InitializeMint — 0 decimals; freeze_authority must be set for Metaplex Master Edition
     ix_init_mint = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -206,10 +206,11 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
         ],
         data=(
-            bytes([0])              # InitializeMint
-            + bytes([0])            # decimals
-            + bytes(authority_pk)   # mint_authority
-            + struct.pack("<I", 0)  # freeze_authority = COption::None
+            bytes([0])                      # InitializeMint
+            + bytes([0])                    # decimals
+            + bytes(authority_pk)           # mint_authority
+            + struct.pack("<I", 1)          # freeze_authority = COption::Some
+            + bytes(authority_pk)           # freeze_authority pubkey
         ),
     )
 
