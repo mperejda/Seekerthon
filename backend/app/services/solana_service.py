@@ -2,6 +2,7 @@
 Solana service: reads on-chain state and builds unsigned vote transactions.
 Uses solders for low-level Solana types and anchorpy for program interaction.
 """
+import asyncio
 import base64
 import logging
 import math
@@ -47,10 +48,16 @@ SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
 
 
 async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-        resp.raise_for_status()
-        return resp.json()
+    for attempt in range(3):
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp.json()
+        if attempt < 2:
+            await asyncio.sleep(2 ** attempt)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _find_ata(wallet: Pubkey, mint: Pubkey) -> Pubkey:

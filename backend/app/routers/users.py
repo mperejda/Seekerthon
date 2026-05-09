@@ -67,10 +67,18 @@ async def login(body: UserCreate):
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed wallet address or signature")
 
-    # Fetch on-chain state
-    skr_balance, skr_staked = await get_skr_balance(body.wallet_address)
+    # Fetch on-chain state — fall back to safe defaults if RPC is rate-limited
+    try:
+        skr_balance, skr_staked = await get_skr_balance(body.wallet_address)
+    except Exception as exc:
+        log.warning("SKR balance lookup failed for %s: %s", body.wallet_address, exc)
+        skr_balance, skr_staked = 0, 0
     vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
-    is_seeker_verified = await verify_seeker_genesis_holder(body.wallet_address)
+    try:
+        is_seeker_verified = await verify_seeker_genesis_holder(body.wallet_address)
+    except Exception as exc:
+        log.warning("Genesis check failed for %s: %s", body.wallet_address, exc)
+        is_seeker_verified = False
 
     user_data = {
         "wallet_address": body.wallet_address,
