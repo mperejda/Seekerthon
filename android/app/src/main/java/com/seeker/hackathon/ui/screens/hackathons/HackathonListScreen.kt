@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Logout
@@ -16,11 +18,13 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.seeker.hackathon.domain.model.Hackathon
+import com.seeker.hackathon.ui.LocalActivityResultSender
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -32,6 +36,12 @@ fun HackathonListScreen(
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val sender = LocalActivityResultSender.current
+
+    // Success snackbar
+    if (state.mintSuccess) {
+        LaunchedEffect(Unit) { viewModel.dismissMintSuccess() }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -48,9 +58,12 @@ fun HackathonListScreen(
                 CircularProgressIndicator()
             }
             state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.load() }) {
+                    Button(onClick = { viewModel.dismissError(); viewModel.load() }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Retry")
@@ -62,22 +75,128 @@ fun HackathonListScreen(
                 onRefresh = { viewModel.refresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (state.hackathons.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Outlined.Inbox, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("No hackathons yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (state.hackathons.isEmpty()) {
+                        item {
+                            Box(
+                                Modifier
+                                    .fillParentMaxSize()
+                                    .padding(bottom = 80.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Inbox,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text("No hackathons yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
+                    } else {
                         items(state.hackathons) { hackathon ->
                             HackathonCard(hackathon = hackathon, onClick = { onHackathonClick(hackathon.id) })
                         }
+                    }
+
+                    item {
+                        Spacer(Modifier.height(4.dp))
+                        BuilderPassCard(
+                            hasBuilderPass = state.hasBuilderPass,
+                            isMinting = state.isMinting,
+                            mintSuccess = state.mintSuccess,
+                            onMint = { viewModel.mintBuilderPass(sender) },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BuilderPassCard(
+    hasBuilderPass: Boolean,
+    isMinting: Boolean,
+    mintSuccess: Boolean,
+    onMint: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (hasBuilderPass)
+                MaterialTheme.colorScheme.secondaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Diamond,
+                    contentDescription = null,
+                    tint = if (hasBuilderPass) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    "Alpine Labs Builder Pass",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+                if (hasBuilderPass || mintSuccess) {
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "Owned",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+
+            Text(
+                if (hasBuilderPass || mintSuccess)
+                    "You hold the Builder Pass — your vote power is 5× amplified."
+                else
+                    "5× vote boost on top of your SKR multiplier. Mint for $10 USDC.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (!hasBuilderPass && !mintSuccess) {
+                Button(
+                    onClick = onMint,
+                    enabled = !isMinting,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    if (isMinting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Minting…")
+                    } else {
+                        Text("Mint Alpine Labs Builder Pass for 5× vote boost")
                     }
                 }
             }

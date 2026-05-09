@@ -37,10 +37,26 @@ class UserResponse(UserBase):
     skr_staked: int = 0
     vote_multiplier: float = 1.0
     is_seeker_verified: bool = False
+    has_builder_pass: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class MintPrepareResponse(BaseModel):
+    transaction_b64: str
+    mint_address: str
+
+
+class MintConfirmRequest(BaseModel):
+    signed_transaction: str
+    mint_address: str
+
+
+class MintConfirmResponse(BaseModel):
+    success: bool
+    tx_signature: str
 
 
 class WalletChallenge(BaseModel):

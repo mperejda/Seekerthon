@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import hackathons, projects, votes, users
+from app.routers import hackathons, mint, projects, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
 import uvicorn
@@ -32,6 +32,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(hackathons.router, prefix="/api/v1/hackathons", tags=["hackathons"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
 app.include_router(votes.router, prefix="/api/v1/votes", tags=["votes"])
+app.include_router(mint.router, prefix="/api/v1/mint", tags=["mint"])
 
 
 @app.get("/health")

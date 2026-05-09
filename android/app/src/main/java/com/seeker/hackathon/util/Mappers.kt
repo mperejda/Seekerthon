@@ -15,6 +15,7 @@ fun UserDto.toUser() = User(
     skrStaked = skr_staked,
     voteMultiplier = vote_multiplier,
     isSeekerVerified = is_seeker_verified,
+    hasBuilderPass = has_builder_pass,
     createdAt = Instant.parse(created_at),
 )
 

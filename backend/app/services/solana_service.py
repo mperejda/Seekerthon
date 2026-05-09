@@ -4,13 +4,16 @@ Uses solders for low-level Solana types and anchorpy for program interaction.
 """
 import asyncio
 import base64
+import json
 import logging
 import math
 import struct
 import uuid as _uuid
 from typing import Tuple
 
+from solders.keypair import Keypair as SoldersKeypair
 from solders.pubkey import Pubkey
+from solders.signature import Signature as SoldersSignature
 from solders.transaction import Transaction
 from solders.message import Message
 from solders.instruction import Instruction, AccountMeta
@@ -123,14 +126,237 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
     return balance_raw // divisor, staked_raw // divisor
 
 
-def compute_vote_weight(skr_staked: int) -> float:
+def compute_vote_weight(skr_staked: int, has_builder_pass: bool = False) -> float:
     """
-    Weight formula: 1 + log2(1 + staked / SKR_PER_STEP)
-    Capped at MAX_MULTIPLIER.
-    Gives smooth curve: 0 staked=1.0x, 100=2.0x, 300=3.0x, 700=4.0x, 1500=5.0x
+    Weight formula: 1 + log2(1 + staked / SKR_PER_STEP), capped at MAX_MULTIPLIER.
+    Builder Pass multiplies the result by 5x (capped at MAX_MULTIPLIER * 5).
     """
     raw = 1.0 + math.log2(1.0 + skr_staked / SKR_PER_STEP)
-    return round(min(raw, MAX_MULTIPLIER), 4)
+    base = round(min(raw, MAX_MULTIPLIER), 4)
+    if has_builder_pass:
+        return round(min(base * 5.0, MAX_MULTIPLIER * 5.0), 4)
+    return base
+
+
+def _borsh_str(s: str) -> bytes:
+    enc = s.encode("utf-8")
+    return struct.pack("<I", len(enc)) + enc
+
+
+async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, str]:
+    """
+    Build a partially-signed NFT mint transaction for the Alpine Labs Builder Pass.
+    Instructions: createAccount + initializeMint + createATA + mintTo +
+                  createMetadataV3 + createMasterEditionV3 + USDC transfer ($10).
+    Backend signs with authority + mint keypairs; buyer adds their signature via MWA.
+    Returns (base64_tx, mint_address).
+    """
+    settings = _settings
+
+    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_secret)))
+    authority_pk = authority_kp.pubkey()
+
+    mint_kp = SoldersKeypair()
+    mint_pk = mint_kp.pubkey()
+
+    buyer_pk = Pubkey.from_string(buyer_wallet)
+    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
+    collection_mint_pk = Pubkey.from_string(settings.builder_pass_collection_mint)
+    treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
+
+    buyer_nft_ata = _find_ata(buyer_pk, mint_pk)
+    buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
+    treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
+
+    metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+    edition_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pk), b"edition"],
+        METADATA_PROGRAM_ID,
+    )
+
+    SYSVAR_RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
+
+    # Rent exemption for the 82-byte mint account
+    rent_resp = await _rpc_post("getMinimumBalanceForRentExemption", [82], rpc_url=MAINNET_RPC_URL)
+    mint_rent = rent_resp["result"]
+
+    # 1. CreateAccount (system program) — allocate mint account
+    ix_create_account = Instruction(
+        program_id=SYSTEM_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=mint_pk, is_signer=True, is_writable=True),
+        ],
+        data=(
+            struct.pack("<I", 0)             # SystemInstruction::CreateAccount
+            + struct.pack("<Q", mint_rent)   # lamports
+            + struct.pack("<Q", 82)          # space (mint state)
+            + bytes(TOKEN_PROGRAM_ID)        # owner
+        ),
+    )
+
+    # 2. InitializeMint — 0 decimals, authority = builder pass authority
+    ix_init_mint = Instruction(
+        program_id=TOKEN_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
+        ],
+        data=(
+            bytes([0])              # InitializeMint
+            + bytes([0])            # decimals
+            + bytes(authority_pk)   # mint_authority
+            + struct.pack("<I", 0)  # freeze_authority = COption::None
+        ),
+    )
+
+    # 3. Create ATA for buyer (idempotent)
+    ix_create_ata = Instruction(
+        program_id=ASSOCIATED_TOKEN_PROGRAM,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=buyer_nft_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=bytes([1]),  # CreateIdempotent
+    )
+
+    # 4. MintTo — 1 token to buyer's ATA
+    ix_mint_to = Instruction(
+        program_id=TOKEN_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=buyer_nft_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),
+        ],
+        data=bytes([7]) + struct.pack("<Q", 1),
+    )
+
+    # 5. CreateMetadataAccountV3
+    ix_create_metadata = Instruction(
+        program_id=METADATA_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # mint authority
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),         # payer
+            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=False),  # update authority
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
+        ],
+        data=(
+            bytes([33])
+            + _borsh_str("Alpine Labs Builder Pass")
+            + _borsh_str("ALBP")
+            + _borsh_str(settings.builder_pass_metadata_uri)
+            + struct.pack("<H", 0)             # seller_fee_basis_points
+            + bytes([0])                       # creators: None
+            + bytes([1])                       # collection: Some
+            + bytes([0])                       # verified = false
+            + bytes(collection_mint_pk)        # collection key
+            + bytes([0])                       # uses: None
+            + bytes([1])                       # is_mutable = true
+            + bytes([0])                       # collection_details: None
+        ),
+    )
+
+    # 6. CreateMasterEditionV3 — max_supply = Some(0) for 1/1
+    ix_create_edition = Instruction(
+        program_id=METADATA_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=edition_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # update authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # mint authority
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),         # payer
+            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
+        ],
+        data=bytes([17]) + bytes([1]) + struct.pack("<Q", 0),  # max_supply = Some(0)
+    )
+
+    # 7. SPL Token Transfer — $10 USDC from buyer to treasury
+    ix_usdc_transfer = Instruction(
+        program_id=TOKEN_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=False),
+        ],
+        data=bytes([3]) + struct.pack("<Q", 10_000_000),  # 10 USDC (6 decimals)
+    )
+
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+
+    instructions = [
+        ix_create_account, ix_init_mint, ix_create_ata,
+        ix_mint_to, ix_create_metadata, ix_create_edition, ix_usdc_transfer,
+    ]
+    msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
+
+    # Partially sign with authority + mint keypairs; buyer slot stays zeroed
+    msg_bytes = bytes(msg)
+    num_signers = msg.header.num_required_signatures
+    sigs: list[SoldersSignature] = []
+    for i in range(num_signers):
+        pk = msg.account_keys[i]
+        if pk == authority_pk:
+            sigs.append(authority_kp.sign_message(msg_bytes))
+        elif pk == mint_pk:
+            sigs.append(mint_kp.sign_message(msg_bytes))
+        else:
+            sigs.append(SoldersSignature.default())
+
+    tx = Transaction.populate(msg, sigs)
+    return base64.b64encode(bytes(tx)).decode(), str(mint_pk)
+
+
+async def verify_builder_pass_holder(wallet_address: str) -> bool:
+    """Return True if the wallet holds an Alpine Labs Builder Pass NFT."""
+    collection = _settings.builder_pass_collection_mint
+    if not collection:
+        return False
+    for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
+        resp = await _rpc_post(
+            "getTokenAccountsByOwner",
+            [wallet_address, {"programId": str(token_program)}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        for acct in (resp.get("result", {}).get("value") or []):
+            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+            if info.get("tokenAmount", {}).get("uiAmount", 0) == 1:
+                coll_key, _ = await _fetch_nft_collection(info.get("mint", ""))
+                if coll_key == collection:
+                    return True
+    return False
+
+
+async def verify_builder_pass_mint_on_chain(tx_signature: str, buyer_wallet: str) -> bool:
+    """Confirm the mint transaction landed on-chain and the buyer signed it."""
+    resp = await _rpc_post(
+        "getTransaction",
+        [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    tx_data = resp.get("result")
+    if not tx_data or tx_data.get("meta", {}).get("err") is not None:
+        return False
+    message = tx_data.get("transaction", {}).get("message", {})
+    signer_pubkeys = {
+        acc.get("pubkey", "")
+        for acc in message.get("accountKeys", [])
+        if isinstance(acc, dict) and acc.get("signer")
+    }
+    return buyer_wallet in signer_pubkeys
 
 
 def _parse_metadata_collection(data: bytes) -> tuple[str | None, bool]:

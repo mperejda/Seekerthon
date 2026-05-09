@@ -2,6 +2,7 @@ package com.seeker.hackathon.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import com.solana.mobilewalletadapter.clientlib.ConnectionIdentity
 import com.solana.mobilewalletadapter.clientlib.MobileWalletAdapter
@@ -113,6 +114,37 @@ class WalletRepository @Inject constructor(
                     val sig = r.payload.messages.first().signatures.first()
                         ?: throw Exception("Wallet returned null signature — could not sign vote message")
                     sig.encodeBase58()
+                }
+                is TransactionResult.Failure -> throw Exception("Signing failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+        }
+    }
+
+    suspend fun signMintTransaction(
+        sender: ActivityResultSender,
+        transactionB64: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val txBytes = Base64.decode(transactionB64, Base64.DEFAULT)
+            val adapter = newAdapter()
+
+            // Session 1: authorize and get public key
+            val publicKeyBytes = when (val r = adapter.transact(sender) { authResult ->
+                authResult.accounts.first().publicKey
+            }) {
+                is TransactionResult.Success -> r.payload
+                is TransactionResult.Failure -> throw Exception("Authorization failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+
+            // Session 2: sign the partially-signed transaction
+            when (val r = adapter.transact(sender) { _ ->
+                signTransactions(arrayOf(txBytes))
+            }) {
+                is TransactionResult.Success -> {
+                    val signed = r.payload.signedPayloads.first()
+                    Base64.encodeToString(signed, Base64.NO_WRAP)
                 }
                 is TransactionResult.Failure -> throw Exception("Signing failed: ${r.message}")
                 is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")

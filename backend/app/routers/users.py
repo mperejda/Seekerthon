@@ -15,6 +15,7 @@ from app.models.schemas import UserCreate, UserResponse, WalletChallenge, AuthTo
 from app.services.solana_service import (
     get_skr_balance,
     compute_vote_weight,
+    verify_builder_pass_holder,
     verify_seeker_genesis_holder,
 )
 
@@ -73,12 +74,17 @@ async def login(body: UserCreate):
     except Exception as exc:
         log.warning("SKR balance lookup failed for %s: %s", body.wallet_address, exc)
         skr_balance, skr_staked = 0, 0
-    vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
     try:
         is_seeker_verified = await verify_seeker_genesis_holder(body.wallet_address)
     except Exception as exc:
         log.warning("Genesis check failed for %s: %s", body.wallet_address, exc)
         is_seeker_verified = False
+    try:
+        has_builder_pass = await verify_builder_pass_holder(body.wallet_address)
+    except Exception as exc:
+        log.warning("Builder pass check failed for %s: %s", body.wallet_address, exc)
+        has_builder_pass = False
+    vote_multiplier = compute_vote_weight(skr_balance + skr_staked, has_builder_pass)
 
     user_data = {
         "wallet_address": body.wallet_address,
@@ -86,6 +92,7 @@ async def login(body: UserCreate):
         "skr_staked": skr_staked,
         "vote_multiplier": vote_multiplier,
         "is_seeker_verified": is_seeker_verified,
+        "has_builder_pass": has_builder_pass,
     }
 
     result = db.table("users").upsert(user_data, on_conflict="wallet_address").execute()
@@ -112,18 +119,24 @@ async def get_me(request: Request):
         raise HTTPException(status_code=404, detail="User not found")
 
     skr_balance, skr_staked = await get_skr_balance(wallet)
-    vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
     try:
         is_seeker_verified = await verify_seeker_genesis_holder(wallet)
     except Exception as exc:
         log.warning("Genesis check failed for %s, using cached value: %s", wallet, exc)
         is_seeker_verified = existing.data.get("is_seeker_verified", False)
+    try:
+        has_builder_pass = await verify_builder_pass_holder(wallet)
+    except Exception as exc:
+        log.warning("Builder pass check failed for %s, using cached value: %s", wallet, exc)
+        has_builder_pass = existing.data.get("has_builder_pass", False)
+    vote_multiplier = compute_vote_weight(skr_balance + skr_staked, has_builder_pass)
 
     result = db.table("users").update({
         "skr_balance": skr_balance,
         "skr_staked": skr_staked,
         "vote_multiplier": vote_multiplier,
         "is_seeker_verified": is_seeker_verified,
+        "has_builder_pass": has_builder_pass,
     }).eq("id", user_id).execute()
 
     return UserResponse(**result.data[0])

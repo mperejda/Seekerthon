@@ -9,6 +9,7 @@ data class User(
     val skrStaked: Long,
     val voteMultiplier: Double,
     val isSeekerVerified: Boolean,
+    val hasBuilderPass: Boolean,
     val createdAt: Instant,
 )
 

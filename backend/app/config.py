@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     max_vote_multiplier: float = 5.0
     skr_per_multiplier_step: int = 100
 
+    # Builder Pass NFT
+    builder_pass_collection_mint: str = ""
+    builder_pass_treasury: str = ""
+    builder_pass_metadata_uri: str = ""
+    builder_pass_authority_secret: str = "[]"  # JSON array of keypair bytes
+
     class Config:
         env_file = ".env"
 
