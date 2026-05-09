@@ -300,8 +300,8 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
         logs = sim_val.get("logs") or []
         raise ValueError(f"Mint simulation failed: {sim_val['err']} — {logs}")
 
-    # Submit
-    send = await _rpc_post("sendTransaction", [tx_b64, {"encoding": "base64"}], rpc_url=MAINNET_RPC_URL)
+    # Submit — skip preflight since we already simulated above
+    send = await _rpc_post("sendTransaction", [tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}], rpc_url=MAINNET_RPC_URL)
     if "error" in send:
         raise ValueError(f"sendTransaction failed: {send['error']}")
 
