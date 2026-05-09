@@ -324,17 +324,27 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
 
 
 async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) -> str:
-    """Build an unsigned SPL token transfer of USDC from buyer to treasury. Buyer is the only signer."""
+    """
+    Build an unsigned payment transaction the wallet signs to buy a Builder Pass.
+    Contains three instructions:
+      1. Idempotent create treasury USDC ATA (no-op if exists)
+      2. USDC transfer: buyer → treasury
+      3. SOL transfer: buyer → authority (covers on-chain NFT mint costs)
+    Buyer is the only signer.
+    """
     settings = _settings
     buyer_pk = Pubkey.from_string(buyer_wallet)
     usdc_mint_pk = Pubkey.from_string(USDC_MINT)
     treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
 
+    # Derive authority pubkey from keypair (destination for SOL fee)
+    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
+    authority_pk = authority_kp.pubkey()
+
     buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
     treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
 
-    # Idempotent create for treasury ATA — no-op if already exists, creates it
-    # (buyer pays ~0.002 SOL rent) if not. Prevents InvalidAccountData on transfer.
+    # 1. Idempotent create treasury ATA — no-op if already exists
     create_treasury_ata_ix = Instruction(
         program_id=ASSOCIATED_TOKEN_PROGRAM,
         accounts=[
@@ -348,6 +358,7 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
         data=bytes([1]),
     )
 
+    # 2. USDC transfer: buyer → treasury
     transfer_ix = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -358,9 +369,24 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
         data=bytes([3]) + struct.pack("<Q", amount_raw),
     )
 
+    # 3. SOL transfer: buyer → authority (self-funds the on-chain NFT mint costs ~0.017 SOL)
+    sol_fee = settings.builder_pass_sol_fee_lamports
+    sol_transfer_ix = Instruction(
+        program_id=SYSTEM_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=True),
+        ],
+        data=struct.pack("<I", 2) + struct.pack("<Q", sol_fee),  # SystemInstruction::Transfer
+    )
+
+    instructions = [create_treasury_ata_ix, transfer_ix]
+    if sol_fee > 0:
+        instructions.append(sol_transfer_ix)
+
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
-    msg = Message.new_with_blockhash([create_treasury_ata_ix, transfer_ix], buyer_pk, recent_blockhash)
+    msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 

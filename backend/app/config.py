@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     builder_pass_metadata_uri: str = ""
     builder_pass_authority_keypair: str = "[]"  # JSON array of keypair bytes
     builder_pass_price_usdc: int = 10_000_000   # $10 USDC (6 decimals); set to 0 to disable payment
+    builder_pass_sol_fee_lamports: int = 25_000_000  # 0.025 SOL sent to authority to cover mint costs
 
     class Config:
         env_file = ".env"

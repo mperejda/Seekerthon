@@ -19,9 +19,11 @@ _settings = get_settings()
 
 
 class PrepareResponse(BaseModel):
-    transaction_b64: str   # unsigned USDC transfer tx for the wallet to sign
-    amount_raw: int        # raw USDC units (6 decimals)
-    amount_display: str    # human-readable e.g. "0.01"
+    transaction_b64: str       # unsigned payment tx for the wallet to sign
+    amount_raw: int            # raw USDC units (6 decimals)
+    amount_display: str        # human-readable USDC e.g. "0.01"
+    sol_fee_lamports: int      # SOL sent to authority to cover NFT mint costs
+    sol_fee_display: str       # human-readable SOL e.g. "0.025"
 
 
 class ClaimRequest(BaseModel):
@@ -47,10 +49,13 @@ async def prepare_builder_pass_mint(request: Request):
         _log.exception("Failed to build USDC transfer transaction")
         raise HTTPException(status_code=500, detail=str(exc))
 
+    sol_fee = _settings.builder_pass_sol_fee_lamports
     return PrepareResponse(
         transaction_b64=tx_b64,
         amount_raw=price,
         amount_display=f"{price / 1_000_000:.6g}",
+        sol_fee_lamports=sol_fee,
+        sol_fee_display=f"{sol_fee / 1_000_000_000:.6g}",
     )
 
 
