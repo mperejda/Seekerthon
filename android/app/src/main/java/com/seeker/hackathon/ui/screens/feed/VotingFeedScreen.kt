@@ -325,6 +325,7 @@ private fun LeaderboardCard(
     isVoted: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val rankColor = when (rank) {
         1 -> Color(0xFFFFD700)
         2 -> Color(0xFFC0C0C0)
@@ -337,91 +338,117 @@ private fun LeaderboardCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2A)),
         shape = RoundedCornerShape(16.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Rank indicator
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(rankColor.copy(alpha = if (rank <= 3) 0.15f else 0.08f)),
-                contentAlignment = Alignment.Center,
+            // Rank + name + vote total
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(rankColor.copy(alpha = if (rank <= 3) 0.15f else 0.08f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = when (rank) {
+                            1 -> "1st"
+                            2 -> "2nd"
+                            3 -> "3rd"
+                            else -> "$rank"
+                        },
+                        color = rankColor,
+                        fontSize = if (rank <= 3) 12.sp else 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 Text(
-                    text = when (rank) {
-                        1 -> "1st"
-                        2 -> "2nd"
-                        3 -> "3rd"
-                        else -> "$rank"
-                    },
-                    color = rankColor,
-                    fontSize = if (rank <= 3) 12.sp else 14.sp,
+                    text = project.name,
+                    color = Color.White,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "%.1f".format(project.voteCount),
+                        color = rankColor,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "votes",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+
+            // Full description
+            if (project.description.isNotBlank()) {
+                Text(
+                    text = project.description,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
                 )
             }
 
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Tech stack chips — scrollable if many
+            if (project.techStack.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    project.techStack.forEach { tech -> TechChip(tech) }
+                }
+            }
+
+            // Voted badge + repo/demo links
+            if (isVoted || project.repoUrl != null || project.demoUrl != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = project.name,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
                     if (isVoted) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = Color(0xFF534AB7).copy(alpha = 0.3f),
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Icon(
-                                    Icons.Filled.Star,
-                                    contentDescription = null,
-                                    tint = Color(0xFFAFA9EC),
-                                    modifier = Modifier.size(10.dp),
-                                )
-                                Text("Voted", color = Color(0xFFAFA9EC), fontSize = 10.sp)
+                                Icon(Icons.Filled.Star, null, tint = Color(0xFFAFA9EC), modifier = Modifier.size(11.dp))
+                                Text("Voted", color = Color(0xFFAFA9EC), fontSize = 11.sp)
                             }
                         }
                     }
+                    Spacer(Modifier.weight(1f))
+                    if (project.repoUrl != null) {
+                        OutlinedIconButton(
+                            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(project.repoUrl))) },
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(Icons.Outlined.Code, "Repo", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (project.demoUrl != null) {
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedIconButton(
+                            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(project.demoUrl))) },
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(Icons.Outlined.OpenInBrowser, "Demo", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
-                if (project.description.isNotBlank()) {
-                    Text(
-                        text = project.description,
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            // Vote total
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "%.1f".format(project.voteCount),
-                    color = rankColor,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "votes",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 11.sp,
-                )
             }
         }
     }
