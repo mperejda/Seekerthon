@@ -299,8 +299,10 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
 
     instructions = [
         ix_create_account, ix_init_mint, ix_create_ata,
-        ix_mint_to, ix_create_metadata, ix_create_edition, ix_usdc_transfer,
+        ix_mint_to, ix_create_metadata, ix_create_edition,
     ]
+    if settings.builder_pass_price_usdc > 0:
+        instructions.append(ix_usdc_transfer)
     msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
 
     # Partially sign with authority + mint keypairs; buyer slot stays zeroed
