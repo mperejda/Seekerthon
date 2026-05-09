@@ -36,7 +36,7 @@ SKR_PER_STEP = _settings.skr_per_multiplier_step
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 TOKEN_2022_PROGRAM_ID = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
 METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
-ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bQ")
+ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
 SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
 
 
@@ -66,16 +66,23 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
     mint = Pubkey.from_string(SKR_MINT)
     ata = _find_ata(wallet, mint)
 
+    # Use getTokenAccountsByOwner so we don't depend on ATA address derivation
     resp = await _rpc_post(
-        "getTokenAccountBalance",
-        [str(ata), {"commitment": "confirmed"}],
+        "getTokenAccountsByOwner",
+        [
+            wallet_address,
+            {"mint": SKR_MINT},
+            {"encoding": "jsonParsed", "commitment": "confirmed"},
+        ],
     )
     balance = 0
     decimals = 0
-    if "result" in resp and resp["result"]["value"]:
-        val = resp["result"]["value"]
-        balance = int(val["amount"])
-        decimals = int(val.get("decimals", 0))
+    for acct in (resp.get("result", {}).get("value") or []):
+        info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+        ta = info.get("tokenAmount", {})
+        balance += int(ta.get("amount", 0))
+        if decimals == 0:
+            decimals = int(ta.get("decimals", 0))
 
     divisor = 10 ** decimals if decimals > 0 else 1
 
