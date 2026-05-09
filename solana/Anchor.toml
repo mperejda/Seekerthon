@@ -1,5 +1,5 @@
 [toolchain]
-anchor_version = "0.30.1"
+anchor_version = "1.0.2"
 
 [features]
 seeds = true
@@ -17,11 +17,11 @@ escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
 url = "https://api.anchor-lang.com"
 
 [provider]
-cluster = "Devnet"
+cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [workspace]
 members = [

@@ -71,8 +71,13 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
         [str(ata), {"commitment": "confirmed"}],
     )
     balance = 0
+    decimals = 0
     if "result" in resp and resp["result"]["value"]:
-        balance = int(resp["result"]["value"]["amount"])
+        val = resp["result"]["value"]
+        balance = int(val["amount"])
+        decimals = int(val.get("decimals", 0))
+
+    divisor = 10 ** decimals if decimals > 0 else 1
 
     # Staking vault PDA: seeds = [b"stake", wallet, mint]
     staking_pda, _ = Pubkey.find_program_address(
@@ -91,7 +96,7 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
         if len(data) >= 48:
             staked = struct.unpack_from("<Q", data, 8)[0]
 
-    return balance, staked
+    return balance // divisor, staked // divisor
 
 
 def compute_vote_weight(skr_staked: int) -> float:

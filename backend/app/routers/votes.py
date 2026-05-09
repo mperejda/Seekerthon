@@ -67,8 +67,9 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Compute and lock vote weight now — not at confirm time
-    _, skr_staked = await get_skr_balance(wallet)
-    vote_weight = compute_vote_weight(skr_staked)
+    skr_balance, skr_staked = await get_skr_balance(wallet)
+    effective_skr = skr_balance + skr_staked
+    vote_weight = compute_vote_weight(effective_skr)
     vote_weight_bps = int(vote_weight * 10000)
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=_VOTE_TTL_MINUTES)
@@ -87,7 +88,7 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     return VotePrepareResponse(
         vote_message=vote_message,
         vote_weight=vote_weight,
-        voter_skr_staked=skr_staked,
+        voter_skr_staked=effective_skr,
         expires_at=expires_at,
     )
 

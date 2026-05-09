@@ -35,7 +35,7 @@ pub mod escrow {
 
         token::transfer(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.organizer_usdc_ata.to_account_info(),
                     to: ctx.accounts.vault.to_account_info(),
@@ -55,7 +55,7 @@ pub mod escrow {
     }
 
     pub fn release_prize<'info>(
-        ctx: Context<'_, '_, '_, 'info, ReleasePrize<'info>>,
+        ctx: Context<'info, ReleasePrize<'info>>,
         hackathon_id: [u8; 16],
         winner_share_bps: Vec<u16>,
     ) -> Result<()> {
@@ -83,7 +83,7 @@ pub mod escrow {
 
         let vault_info = ctx.accounts.vault.to_account_info();
         let authority_info = ctx.accounts.hackathon_escrow.to_account_info();
-        let token_program_info = ctx.accounts.token_program.to_account_info();
+        let token_program_key = ctx.accounts.token_program.key();
 
         for (i, recipient_ata) in ctx.remaining_accounts.iter().enumerate() {
             // Validate owner (catches non-token accounts) then check mint via accessor
@@ -108,7 +108,7 @@ pub mod escrow {
 
             token::transfer(
                 CpiContext::new_with_signer(
-                    token_program_info.clone(),
+                    token_program_key,
                     Transfer {
                         from: vault_info.clone(),
                         to: recipient_ata.to_account_info(),
@@ -131,7 +131,7 @@ pub mod escrow {
     }
 
     pub fn refund<'info>(
-        ctx: Context<'_, '_, '_, 'info, Refund<'info>>,
+        ctx: Context<'info, Refund<'info>>,
         hackathon_id: [u8; 16],
     ) -> Result<()> {
         require!(
@@ -151,11 +151,11 @@ pub mod escrow {
         let vault_info = ctx.accounts.vault.to_account_info();
         let dest_info = ctx.accounts.organizer_usdc_ata.to_account_info();
         let authority_info = ctx.accounts.hackathon_escrow.to_account_info();
-        let token_program_info = ctx.accounts.token_program.to_account_info();
+        let token_program_key = ctx.accounts.token_program.key();
 
         token::transfer(
             CpiContext::new_with_signer(
-                token_program_info,
+                token_program_key,
                 Transfer {
                     from: vault_info,
                     to: dest_info,

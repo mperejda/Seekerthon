@@ -636,13 +636,6 @@ describe("escrow", () => {
       // Tiny sleep so voting_start passes
       await new Promise((r) => setTimeout(r, 2000));
 
-      const refundAta = await createAssociatedTokenAccount(
-        provider.connection,
-        payer,
-        usdcMint,
-        org2.publicKey
-      );
-
       await expectError(
         () =>
           program.methods
@@ -652,7 +645,7 @@ describe("escrow", () => {
               usdcMint,
               hackathonEscrow: ep2,
               vault: v2,
-              organizerUsdcAta: refundAta,
+              organizerUsdcAta: ata2,
               tokenProgram: TOKEN_PROGRAM_ID,
               systemProgram: SystemProgram.programId,
             })
