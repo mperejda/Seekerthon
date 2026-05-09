@@ -51,6 +51,13 @@ fun VotingFeedScreen(
     val state by viewModel.state.collectAsState()
     val activityResultSender = LocalActivityResultSender.current
 
+    if (!state.isUserStateLoaded) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+        }
+        return
+    }
+
     if (state.hasFinishedVoting) {
         LeaderboardScreen(
             projects = state.projects,

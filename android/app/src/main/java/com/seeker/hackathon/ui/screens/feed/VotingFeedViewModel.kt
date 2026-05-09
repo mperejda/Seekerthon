@@ -28,6 +28,7 @@ data class FeedUiState(
     val currentIndex: Int = 0,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val isUserStateLoaded: Boolean = false,
     val votedProjectIds: Set<String> = emptySet(),
     val votingProjectId: String? = null,
     val error: String? = null,
@@ -99,8 +100,11 @@ class VotingFeedViewModel @Inject constructor(
                     userMultiplier = user.vote_multiplier,
                     isSeekerVerified = user.is_seeker_verified,
                     hasFinishedVoting = finishedKey() in finished,
+                    isUserStateLoaded = true,
                 )
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(isUserStateLoaded = true)
+            }
         }
         viewModelScope.launch {
             try {
