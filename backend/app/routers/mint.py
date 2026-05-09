@@ -9,6 +9,7 @@ from app.models.schemas import MintConfirmResponse
 from app.services.solana_service import (
     build_usdc_transfer_transaction,
     mint_builder_pass_server_side,
+    submit_and_confirm_transaction,
     verify_usdc_payment,
 )
 
@@ -18,13 +19,13 @@ _settings = get_settings()
 
 
 class PrepareResponse(BaseModel):
-    transaction_b64: str   # unsigned USDC transfer tx for the wallet to sign+send
+    transaction_b64: str   # unsigned USDC transfer tx for the wallet to sign
     amount_raw: int        # raw USDC units (6 decimals)
     amount_display: str    # human-readable e.g. "0.01"
 
 
 class ClaimRequest(BaseModel):
-    tx_signature: str      # base58 signature of the confirmed USDC transfer tx
+    signed_tx_b64: str     # wallet-signed USDC transfer tx (base64); backend submits it
 
 
 def _already_owns(user_id: str) -> bool:
@@ -61,9 +62,14 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
 
     price = _settings.builder_pass_price_usdc
 
-    # Skip payment check only when price is explicitly 0
+    # Skip payment when price is 0; otherwise backend submits the signed tx and verifies
     if price > 0:
-        paid = await verify_usdc_payment(body.tx_signature, request.state.wallet_address, price)
+        try:
+            tx_sig = await submit_and_confirm_transaction(body.signed_tx_b64)
+        except Exception as exc:
+            _log.exception("USDC payment submission failed")
+            raise HTTPException(status_code=402, detail=f"Payment transaction failed: {exc}")
+        paid = await verify_usdc_payment(tx_sig, request.state.wallet_address, price)
         if not paid:
             raise HTTPException(status_code=402, detail="USDC payment not confirmed")
 

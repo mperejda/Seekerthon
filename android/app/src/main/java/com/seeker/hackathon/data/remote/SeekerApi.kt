@@ -19,7 +19,7 @@ data class UserDto(
 )
 
 data class MintPrepareResponseDto(val transaction_b64: String, val amount_raw: Long, val amount_display: String)
-data class MintClaimRequestDto(val tx_signature: String)
+data class MintClaimRequestDto(val signed_tx_b64: String)
 data class MintConfirmResponseDto(val success: Boolean, val tx_signature: String)
 
 data class HackathonDto(

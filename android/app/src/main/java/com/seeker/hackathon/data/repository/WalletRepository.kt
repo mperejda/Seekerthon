@@ -128,15 +128,16 @@ class WalletRepository @Inject constructor(
         runCatching {
             val txBytes = Base64.decode(transactionB64, Base64.DEFAULT)
             val adapter = newAdapter()
-            // Single session: adapter handles authorize internally, then signs+sends in one wallet prompt.
-            // Two sessions would leave the blockhash stale (150 slots ≈ 60 s) by the second prompt.
+            // signTransactions (not signAndSendTransactions): wallet signs and returns the signed
+            // bytes without submitting. The backend submits and polls for confirmation, which
+            // avoids the Seed Vault null-signature bug where the wallet submits but times out
+            // before returning the tx signature.
             when (val r = adapter.transact(sender) { _ ->
-                signAndSendTransactions(arrayOf(txBytes))
+                signTransactions(arrayOf(txBytes))
             }) {
                 is TransactionResult.Success -> {
-                    val sigBytes = r.payload.signatures.first()
-                        ?: throw Exception("Wallet returned null signature")
-                    sigBytes.encodeBase58()
+                    val signedBytes = r.payload.signedPayloads.first()
+                    Base64.encodeToString(signedBytes, Base64.NO_WRAP)
                 }
                 is TransactionResult.Failure -> throw Exception("Signing failed: ${r.message}")
                 is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")

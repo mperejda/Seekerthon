@@ -380,6 +380,33 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     return tx_b64
 
 
+async def submit_and_confirm_transaction(signed_tx_b64: str) -> str:
+    """Submit a wallet-signed transaction to mainnet and return its base58 signature."""
+    resp = await _rpc_post(
+        "sendTransaction",
+        [signed_tx_b64, {"encoding": "base64", "preflightCommitment": "confirmed", "skipPreflight": False}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    if "error" in resp:
+        raise Exception(f"sendTransaction failed: {resp['error']}")
+    sig = resp["result"]  # base58 signature string
+
+    for _ in range(30):
+        await asyncio.sleep(2)
+        conf = await _rpc_post(
+            "getSignatureStatuses",
+            [[sig], {"searchTransactionHistory": True}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        status = ((conf.get("result") or {}).get("value") or [None])[0]
+        if status:
+            if status.get("err") is not None:
+                raise Exception(f"Transaction failed on-chain: {status['err']}")
+            if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                return sig
+    raise Exception("Transaction not confirmed within 60 seconds")
+
+
 async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amount: int) -> bool:
     """Verify a USDC transfer from buyer to treasury landed on-chain with the expected amount."""
     settings = _settings
