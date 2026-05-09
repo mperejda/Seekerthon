@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     builder_pass_collection_mint: str = ""
     builder_pass_treasury: str = ""
     builder_pass_metadata_uri: str = ""
-    builder_pass_authority_secret: str = "[]"  # JSON array of keypair bytes
+    builder_pass_authority_keypair: str = "[]"  # JSON array of keypair bytes
 
     class Config:
         env_file = ".env"

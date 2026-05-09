@@ -153,7 +153,7 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
     """
     settings = _settings
 
-    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_secret)))
+    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
     authority_pk = authority_kp.pubkey()
 
     mint_kp = SoldersKeypair()
