@@ -192,6 +192,7 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     )
 
     # 2. InitializeMint — 0 decimals; freeze_authority must be set for Metaplex Master Edition
+    # SPL Token COption<Pubkey> packs as: 1-byte discriminant (0=None, 1=Some) + 32-byte pubkey
     ix_init_mint = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -201,9 +202,9 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
         data=(
             bytes([0])                      # InitializeMint
             + bytes([0])                    # decimals
-            + bytes(authority_pk)           # mint_authority
-            + struct.pack("<I", 1)          # freeze_authority = COption::Some
-            + bytes(authority_pk)           # freeze_authority pubkey
+            + bytes(authority_pk)           # mint_authority (32 bytes)
+            + bytes([1])                    # freeze_authority = COption::Some (1 byte, not 4)
+            + bytes(authority_pk)           # freeze_authority pubkey (32 bytes)
         ),
     )
 
@@ -269,7 +270,7 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # update authority
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # mint authority
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),   # payer
-            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
@@ -297,7 +298,7 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     sim_val = sim.get("result", {}).get("value", {})
     if sim_val.get("err"):
         logs = sim_val.get("logs") or []
-        raise ValueError(f"Mint simulation failed: {sim_val['err']} — {logs[-3:]}")
+        raise ValueError(f"Mint simulation failed: {sim_val['err']} — {logs}")
 
     # Submit
     send = await _rpc_post("sendTransaction", [tx_b64, {"encoding": "base64"}], rpc_url=MAINNET_RPC_URL)
