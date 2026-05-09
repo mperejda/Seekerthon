@@ -1,5 +1,9 @@
 package com.seeker.hackathon.ui.screens.feed
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import javax.inject.Inject
@@ -29,16 +34,21 @@ data class FeedUiState(
     val voteSuccessMessage: String? = null,
     val userMultiplier: Double = 1.0,
     val isSeekerVerified: Boolean = false,
+    val hasFinishedVoting: Boolean = false,
 )
 
 @HiltViewModel
 class VotingFeedViewModel @Inject constructor(
     private val api: SeekerApi,
     private val walletRepo: WalletRepository,
+    private val dataStore: DataStore<Preferences>,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val hackathonId: String = checkNotNull(savedStateHandle["hackathonId"])
+
+    // Set once getMe() resolves; used to scope finished-voting state per user
+    private var walletAddress: String = ""
 
     private val _state = MutableStateFlow(FeedUiState(isLoading = true))
     val state: StateFlow<FeedUiState> = _state.asStateFlow()
@@ -83,9 +93,12 @@ class VotingFeedViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val user = api.getMe()
+                walletAddress = user.wallet_address
+                val finished = dataStore.data.first()[FINISHED_VOTING_KEY] ?: emptySet()
                 _state.value = _state.value.copy(
                     userMultiplier = user.vote_multiplier,
                     isSeekerVerified = user.is_seeker_verified,
+                    hasFinishedVoting = finishedKey() in finished,
                 )
             } catch (_: Exception) {}
         }
@@ -96,6 +109,21 @@ class VotingFeedViewModel @Inject constructor(
             } catch (_: Exception) {}
         }
     }
+
+    fun finishVoting() {
+        if (walletAddress.isEmpty()) return
+        viewModelScope.launch {
+            val key = finishedKey()
+            dataStore.edit { prefs ->
+                val current = prefs[FINISHED_VOTING_KEY] ?: emptySet()
+                prefs[FINISHED_VOTING_KEY] = current + key
+            }
+            _state.value = _state.value.copy(hasFinishedVoting = true)
+        }
+        refresh()
+    }
+
+    private fun finishedKey() = "$walletAddress:$hackathonId"
 
     fun onSwipeUp() {
         val projects = _state.value.projects
@@ -118,14 +146,9 @@ class VotingFeedViewModel @Inject constructor(
             _state.value = _state.value.copy(votingProjectId = projectId, error = null)
 
             try {
-                // Step 1: Get vote message + locked weight from backend
                 val prepare = api.prepareVote(VotePrepareRequestDto(project_id = projectId))
-
-                // Step 2: Sign the message with Seeker wallet (no tx, no fees)
                 val sigResult = walletRepo.signVoteMessage(sender, prepare.vote_message)
                 val txSig = sigResult.getOrThrow()
-
-                // Step 3: Confirm with backend — sends message + ed25519 sig
                 val vote = api.confirmVote(VoteConfirmRequestDto(project_id = projectId, vote_message = prepare.vote_message, tx_signature = txSig))
 
                 _state.value = _state.value.copy(
@@ -165,5 +188,9 @@ class VotingFeedViewModel @Inject constructor(
 
     fun dismissSuccessMessage() {
         _state.value = _state.value.copy(voteSuccessMessage = null)
+    }
+
+    companion object {
+        private val FINISHED_VOTING_KEY = stringSetPreferencesKey("finished_voting_hackathons")
     }
 }

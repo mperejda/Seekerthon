@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,12 +49,19 @@ fun VotingFeedScreen(
     viewModel: VotingFeedViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val scope = rememberCoroutineScope()
     val activityResultSender = LocalActivityResultSender.current
 
-    val listState = rememberLazyListState()
+    if (state.hasFinishedVoting) {
+        LeaderboardScreen(
+            projects = state.projects,
+            votedProjectIds = state.votedProjectIds,
+            isRefreshing = state.isRefreshing,
+            onRefresh = { viewModel.refresh() },
+        )
+        return
+    }
 
-    // Snap scroll
+    val listState = rememberLazyListState()
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -86,6 +94,18 @@ fun VotingFeedScreen(
                                 .fillMaxWidth(),
                         )
                     }
+
+                    if (state.projects.isNotEmpty()) {
+                        item {
+                            FinishVotingCard(
+                                onFinish = { viewModel.finishVoting() },
+                                modifier = Modifier
+                                    .fillParentMaxHeight()
+                                    .fillMaxWidth(),
+                            )
+                        }
+                    }
+
                     if (state.projects.isEmpty()) {
                         item {
                             Box(
@@ -114,7 +134,6 @@ fun VotingFeedScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Seeker verified badge
                 if (state.isSeekerVerified) {
                     SeekerBadge()
                 }
@@ -171,6 +190,244 @@ fun VotingFeedScreen(
 }
 
 @Composable
+private fun FinishVotingCard(
+    onFinish: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.background(
+            Brush.verticalGradient(colors = listOf(Color(0xFF0D0D1A), Color(0xFF1A0533)))
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.padding(horizontal = 40.dp),
+        ) {
+            Icon(
+                Icons.Filled.EmojiEvents,
+                contentDescription = null,
+                tint = Color(0xFFFFD700),
+                modifier = Modifier.size(88.dp),
+            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "You've seen all the projects",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    "Ready to lock in your votes?",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Button(
+                onClick = onFinish,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF534AB7)),
+                shape = RoundedCornerShape(50.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 16.dp),
+            ) {
+                Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Finish Voting", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LeaderboardScreen(
+    projects: List<Project>,
+    votedProjectIds: Set<String>,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+) {
+    val ranked = remember(projects) { projects.sortedByDescending { it.voteCount } }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp),
+            ) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color(0xFF1A0533), Color(0xFF0D0D1A))
+                                )
+                            )
+                            .padding(horizontal = 20.dp)
+                            .padding(top = 56.dp, bottom = 28.dp),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.EmojiEvents,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700),
+                                    modifier = Modifier.size(32.dp),
+                                )
+                                Text(
+                                    "Leaderboard",
+                                    color = Color.White,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Text(
+                                "${ranked.size} projects · ranked by weighted votes",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 13.sp,
+                            )
+                        }
+                    }
+                }
+
+                itemsIndexed(ranked) { index, project ->
+                    LeaderboardCard(
+                        rank = index + 1,
+                        project = project,
+                        isVoted = votedProjectIds.contains(project.id),
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardCard(
+    rank: Int,
+    project: Project,
+    isVoted: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val rankColor = when (rank) {
+        1 -> Color(0xFFFFD700)
+        2 -> Color(0xFFC0C0C0)
+        3 -> Color(0xFFCD7F32)
+        else -> Color(0xFF6B6B8A)
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2A)),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // Rank indicator
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(rankColor.copy(alpha = if (rank <= 3) 0.15f else 0.08f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = when (rank) {
+                        1 -> "1st"
+                        2 -> "2nd"
+                        3 -> "3rd"
+                        else -> "$rank"
+                    },
+                    color = rankColor,
+                    fontSize = if (rank <= 3) 12.sp else 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = project.name,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isVoted) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF534AB7).copy(alpha = 0.3f),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Star,
+                                    contentDescription = null,
+                                    tint = Color(0xFFAFA9EC),
+                                    modifier = Modifier.size(10.dp),
+                                )
+                                Text("Voted", color = Color(0xFFAFA9EC), fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+                if (project.description.isNotBlank()) {
+                    Text(
+                        text = project.description,
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            // Vote total
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "%.1f".format(project.voteCount),
+                    color = rankColor,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "votes",
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProjectCard(
     project: Project,
     isVoted: Boolean,
@@ -185,7 +442,6 @@ private fun ProjectCard(
     val youtubeId = project.demoUrl?.let { extractYouTubeId(it) }
 
     Box(modifier = modifier) {
-        // Background: YouTube thumbnail, mp4, image, or gradient placeholder
         when {
             youtubeId != null -> YouTubeThumbnail(
                 videoId = youtubeId,
@@ -215,7 +471,6 @@ private fun ProjectCard(
             )
         }
 
-        // Scrim for readability
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -227,7 +482,6 @@ private fun ProjectCard(
                 )
         )
 
-        // Right side action buttons
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -236,7 +490,6 @@ private fun ProjectCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Vote button
             ActionButton(
                 icon = if (isVoted) Icons.Filled.Star else Icons.Outlined.StarOutline,
                 label = "${project.voteCount.toLong()}",
@@ -245,7 +498,6 @@ private fun ProjectCard(
                 onClick = { if (!isVoted && !isVoting) onVote() },
             )
 
-            // GitHub link
             if (project.repoUrl != null) {
                 ActionButton(
                     icon = Icons.Outlined.Code,
@@ -257,7 +509,6 @@ private fun ProjectCard(
                 )
             }
 
-            // Demo link
             if (project.demoUrl != null && !project.demoUrl.endsWith(".mp4")) {
                 ActionButton(
                     icon = Icons.Outlined.OpenInBrowser,
@@ -270,7 +521,6 @@ private fun ProjectCard(
             }
         }
 
-        // Bottom info panel
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -291,7 +541,6 @@ private fun ProjectCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(8.dp))
-            // Tech stack chips
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 project.techStack.take(3).forEach { tech ->
                     TechChip(tech)
@@ -408,7 +657,6 @@ private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modi
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
         )
-        // Dark scrim + play button
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -433,7 +681,6 @@ private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modi
         }
     }
 }
-
 
 @Composable
 private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
