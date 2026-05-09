@@ -323,6 +323,73 @@ async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     raise ValueError("Transaction confirmation timeout")
 
 
+async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) -> str:
+    """Build an unsigned SPL token transfer of USDC from buyer to treasury. Buyer is the only signer."""
+    settings = _settings
+    buyer_pk = Pubkey.from_string(buyer_wallet)
+    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
+    treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
+
+    buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
+    treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
+
+    ix = Instruction(
+        program_id=TOKEN_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=buyer_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=False),
+        ],
+        data=bytes([3]) + struct.pack("<Q", amount_raw),
+    )
+
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([ix], buyer_pk, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    return base64.b64encode(bytes(tx)).decode()
+
+
+async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amount: int) -> bool:
+    """Verify a USDC transfer from buyer to treasury landed on-chain with the expected amount."""
+    settings = _settings
+    treasury = settings.builder_pass_treasury
+
+    resp = await _rpc_post(
+        "getTransaction",
+        [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    tx_data = resp.get("result")
+    if not tx_data or tx_data.get("meta", {}).get("err") is not None:
+        return False
+
+    # Buyer must have signed
+    message = tx_data.get("transaction", {}).get("message", {})
+    signer_pubkeys = {
+        acc.get("pubkey", "")
+        for acc in message.get("accountKeys", [])
+        if isinstance(acc, dict) and acc.get("signer")
+    }
+    if buyer_wallet not in signer_pubkeys:
+        return False
+
+    # Treasury USDC balance must have increased by at least expected_amount
+    meta = tx_data.get("meta", {})
+    pre_by_owner: dict[str, int] = {}
+    post_by_owner: dict[str, int] = {}
+    for bal in (meta.get("preTokenBalances") or []):
+        if bal.get("mint") == USDC_MINT:
+            pre_by_owner[bal.get("owner", "")] = int(bal.get("uiTokenAmount", {}).get("amount", 0))
+    for bal in (meta.get("postTokenBalances") or []):
+        if bal.get("mint") == USDC_MINT:
+            post_by_owner[bal.get("owner", "")] = int(bal.get("uiTokenAmount", {}).get("amount", 0))
+
+    increase = post_by_owner.get(treasury, 0) - pre_by_owner.get(treasury, 0)
+    _log.info("USDC payment check: treasury increase=%d expected=%d", increase, expected_amount)
+    return increase >= expected_amount
+
+
 async def verify_builder_pass_holder(wallet_address: str) -> bool:
     """Return True if the wallet holds an Alpine Labs Builder Pass NFT."""
     collection = _settings.builder_pass_collection_mint

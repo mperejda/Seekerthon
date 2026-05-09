@@ -2,6 +2,8 @@ package com.seeker.hackathon.ui.screens.hackathons
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
+import com.seeker.hackathon.data.remote.MintClaimRequestDto
 import com.seeker.hackathon.data.remote.SeekerApi
 import com.seeker.hackathon.data.repository.WalletRepository
 import com.seeker.hackathon.domain.model.Hackathon
@@ -76,11 +78,16 @@ class HackathonListViewModel @Inject constructor(
         }
     }
 
-    fun mintBuilderPass() {
+    fun mintBuilderPass(sender: ActivityResultSender) {
         viewModelScope.launch {
             _state.value = _state.value.copy(isMinting = true, error = null)
             try {
-                api.claimBuilderPass()
+                // Step 1: get unsigned USDC transfer tx from backend
+                val prepare = api.prepareMint()
+                // Step 2: wallet signs + sends the USDC transfer (single signer, simulates cleanly)
+                val txSig = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64).getOrThrow()
+                // Step 3: backend verifies payment and mints NFT server-side
+                api.claimBuilderPass(MintClaimRequestDto(tx_signature = txSig))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isMinting = false, error = e.message ?: "Mint failed")

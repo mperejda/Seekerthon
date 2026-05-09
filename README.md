@@ -193,6 +193,7 @@ API will be at http://localhost:8000. Docs at http://localhost:8000/docs.
 ```bash
 cd solana
 anchor build #cargo build-sbf work around
+anchor test
 anchor deploy --provider.cluster devnet
 
 # Copy the program IDs from the deploy output into backend/.env

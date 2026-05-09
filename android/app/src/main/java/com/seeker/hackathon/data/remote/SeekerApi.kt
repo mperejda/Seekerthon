@@ -18,8 +18,8 @@ data class UserDto(
     val created_at: String,
 )
 
-data class MintPrepareResponseDto(val transaction_b64: String, val mint_address: String)
-data class MintConfirmRequestDto(val tx_signature: String, val mint_address: String)
+data class MintPrepareResponseDto(val transaction_b64: String, val amount_raw: Long, val amount_display: String)
+data class MintClaimRequestDto(val tx_signature: String)
 data class MintConfirmResponseDto(val success: Boolean, val tx_signature: String)
 
 data class HackathonDto(
@@ -101,6 +101,9 @@ interface SeekerApi {
     @GET("votes/mine")
     suspend fun getMyVotes(): List<String>
 
+    @POST("mint/builder-pass/prepare")
+    suspend fun prepareMint(): MintPrepareResponseDto
+
     @POST("mint/builder-pass/claim")
-    suspend fun claimBuilderPass(): MintConfirmResponseDto
+    suspend fun claimBuilderPass(@Body body: MintClaimRequestDto): MintConfirmResponseDto
 }

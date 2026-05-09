@@ -121,6 +121,34 @@ class WalletRepository @Inject constructor(
         }
     }
 
+    suspend fun signAndSendTransaction(
+        sender: ActivityResultSender,
+        transactionB64: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val txBytes = Base64.decode(transactionB64, Base64.DEFAULT)
+            val adapter = newAdapter()
+            when (val r = adapter.transact(sender) { authResult ->
+                authResult.accounts.first().publicKey
+            }) {
+                is TransactionResult.Success -> Unit
+                is TransactionResult.Failure -> throw Exception("Authorization failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+            when (val r = adapter.transact(sender) { _ ->
+                signAndSendTransactions(arrayOf(txBytes))
+            }) {
+                is TransactionResult.Success -> {
+                    val sigBytes = r.payload.signatures.first()
+                        ?: throw Exception("Wallet returned null signature")
+                    sigBytes.encodeBase58()
+                }
+                is TransactionResult.Failure -> throw Exception("Signing failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+        }
+    }
+
     suspend fun signAndSendMintTransaction(
         sender: ActivityResultSender,
         transactionB64: String,

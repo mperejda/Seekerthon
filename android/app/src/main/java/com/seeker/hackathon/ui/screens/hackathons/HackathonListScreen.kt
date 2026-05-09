@@ -36,6 +36,8 @@ fun HackathonListScreen(
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val sender = LocalActivityResultSender.current
+
     // Success snackbar
     if (state.mintSuccess) {
         LaunchedEffect(Unit) { viewModel.dismissMintSuccess() }
