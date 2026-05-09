@@ -333,7 +333,22 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
     treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
 
-    ix = Instruction(
+    # Idempotent create for treasury ATA — no-op if already exists, creates it
+    # (buyer pays ~0.002 SOL rent) if not. Prevents InvalidAccountData on transfer.
+    create_treasury_ata_ix = Instruction(
+        program_id=ASSOCIATED_TOKEN_PROGRAM,
+        accounts=[
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=treasury_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=bytes([1]),
+    )
+
+    transfer_ix = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
             AccountMeta(pubkey=buyer_usdc_ata, is_signer=False, is_writable=True),
@@ -345,7 +360,7 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
-    msg = Message.new_with_blockhash([ix], buyer_pk, recent_blockhash)
+    msg = Message.new_with_blockhash([create_treasury_ata_ix, transfer_ix], buyer_pk, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
