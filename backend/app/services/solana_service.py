@@ -143,10 +143,90 @@ def _borsh_str(s: str) -> bytes:
     return struct.pack("<I", len(enc)) + enc
 
 
+async def verify_nft_collection(mint_pk_str: str) -> None:
+    """
+    Call VerifyCollection on a freshly-minted NFT so wallets don't flag it as spam.
+    Signed entirely server-side by authority_kp (the collection's update authority).
+    Non-fatal: logs a warning on failure rather than raising.
+    """
+    settings = _settings
+    if not settings.builder_pass_collection_mint:
+        return
+
+    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
+    authority_pk = authority_kp.pubkey()
+
+    mint_pk = Pubkey.from_string(mint_pk_str)
+    collection_mint_pk = Pubkey.from_string(settings.builder_pass_collection_mint)
+
+    metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+    collection_metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+    collection_edition_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk), b"edition"],
+        METADATA_PROGRAM_ID,
+    )
+
+    ix_verify = Instruction(
+        program_id=METADATA_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # collection authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),    # payer
+            AccountMeta(pubkey=collection_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=collection_metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=collection_edition_pda, is_signer=False, is_writable=False),
+        ],
+        data=bytes([18]),  # VerifyCollection
+    )
+
+    try:
+        bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+        recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+        msg = Message.new_with_blockhash([ix_verify], authority_pk, recent_blockhash)
+        tx = Transaction([authority_kp], msg, recent_blockhash)
+        tx_b64 = base64.b64encode(bytes(tx)).decode()
+
+        send = await _rpc_post(
+            "sendTransaction",
+            [tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        if "error" in send:
+            _log.warning("VerifyCollection send failed for mint=%s: %s", mint_pk_str, send["error"])
+            return
+
+        sig = send["result"]
+        _log.info("VerifyCollection submitted: %s", sig)
+
+        for _ in range(15):
+            await asyncio.sleep(2)
+            conf = await _rpc_post(
+                "getSignatureStatuses",
+                [[sig], {"searchTransactionHistory": True}],
+                rpc_url=MAINNET_RPC_URL,
+            )
+            status = ((conf.get("result") or {}).get("value") or [None])[0]
+            if status:
+                if status.get("err"):
+                    _log.warning("VerifyCollection tx failed on-chain for mint=%s: %s", mint_pk_str, status["err"])
+                    return
+                if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                    _log.info("VerifyCollection confirmed for mint=%s", mint_pk_str)
+                    return
+    except Exception as exc:
+        _log.warning("VerifyCollection exception for mint=%s: %s", mint_pk_str, exc)
+
+
 async def build_partial_signed_mint_transaction(
     buyer_wallet: str,
     usdc_amount: int,
-) -> tuple[str, int, str, int, str]:
+) -> tuple[str, str, int, str, int, str]:
     """
     Build a combined payment + NFT-mint transaction, pre-signed by authority_kp and mint_kp.
     The buyer's wallet must add the final signature before submission.
@@ -353,9 +433,10 @@ async def build_partial_signed_mint_transaction(
         logs = sim_val.get("logs") or []
         raise ValueError(f"Combined mint simulation failed: {sim_val['err']} — {logs}")
 
-    _log.info("Combined mint tx built and simulated OK for buyer=%s", buyer_wallet)
+    _log.info("Combined mint tx built and simulated OK for buyer=%s mint=%s", buyer_wallet, mint_pk)
     return (
         tx_b64,
+        str(mint_pk),
         usdc_amount,
         f"{usdc_amount / 1_000_000:.6g}",
         sol_fee,
@@ -363,8 +444,8 @@ async def build_partial_signed_mint_transaction(
     )
 
 
-async def submit_mint_transaction(signed_tx_b64: str) -> str:
-    """Submit the fully-signed combined mint tx and return the confirmed signature."""
+async def submit_mint_transaction(signed_tx_b64: str, mint_pk_str: str) -> str:
+    """Submit the fully-signed combined mint tx, verify collection, return confirmed signature."""
     resp = await _rpc_post(
         "sendTransaction",
         [signed_tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}],
@@ -387,6 +468,7 @@ async def submit_mint_transaction(signed_tx_b64: str) -> str:
             if status.get("err") is not None:
                 raise Exception(f"Combined mint tx failed on-chain: {status['err']}")
             if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                await verify_nft_collection(mint_pk_str)
                 return sig
 
     raise Exception("Combined mint tx not confirmed within 60 seconds")

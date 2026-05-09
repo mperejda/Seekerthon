@@ -86,8 +86,8 @@ class HackathonListViewModel @Inject constructor(
                 val prepare = api.prepareMint()
                 // Step 2: wallet signs + sends the USDC transfer (single signer, simulates cleanly)
                 val signedTxB64 = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64).getOrThrow()
-                // Step 3: backend submits the signed tx, verifies payment, mints NFT server-side
-                api.claimBuilderPass(MintClaimRequestDto(signed_tx_b64 = signedTxB64))
+                // Step 3: backend submits tx, verifies collection — payment + NFT are atomic
+                api.claimBuilderPass(MintClaimRequestDto(signed_tx_b64 = signedTxB64, mint_pubkey = prepare.mint_pubkey))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isMinting = false, error = e.message ?: "Mint failed")

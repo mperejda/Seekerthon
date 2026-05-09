@@ -18,6 +18,7 @@ _settings = get_settings()
 
 class PrepareResponse(BaseModel):
     transaction_b64: str
+    mint_pubkey: str
     amount_raw: int
     amount_display: str
     sol_fee_lamports: int
@@ -26,6 +27,7 @@ class PrepareResponse(BaseModel):
 
 class ClaimRequest(BaseModel):
     signed_tx_b64: str
+    mint_pubkey: str
 
 
 def _already_owns(user_id: str) -> bool:
@@ -46,7 +48,7 @@ async def prepare_builder_pass_mint(request: Request):
 
     price = _settings.builder_pass_price_usdc
     try:
-        tx_b64, amount_raw, amount_display, sol_fee, sol_fee_display = \
+        tx_b64, mint_pubkey, amount_raw, amount_display, sol_fee, sol_fee_display = \
             await build_partial_signed_mint_transaction(request.state.wallet_address, price)
     except Exception as exc:
         _log.exception("Failed to build combined mint transaction")
@@ -54,6 +56,7 @@ async def prepare_builder_pass_mint(request: Request):
 
     return PrepareResponse(
         transaction_b64=tx_b64,
+        mint_pubkey=mint_pubkey,
         amount_raw=amount_raw,
         amount_display=amount_display,
         sol_fee_lamports=sol_fee,
@@ -68,13 +71,13 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
     try:
-        mint_sig = await submit_mint_transaction(body.signed_tx_b64)
+        mint_sig = await submit_mint_transaction(body.signed_tx_b64, body.mint_pubkey)
     except Exception as exc:
         _log.exception("Combined mint tx submission failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
     db = get_supabase_admin()
     db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
-    _log.info("Builder pass granted to user %s mint_tx=%s", request.state.user_id, mint_sig)
+    _log.info("Builder pass granted to user %s mint=%s tx=%s", request.state.user_id, body.mint_pubkey, mint_sig)
 
     return MintConfirmResponse(success=True, tx_signature=mint_sig)
