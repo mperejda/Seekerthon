@@ -1,10 +1,8 @@
 import asyncio
 import logging
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import MintConfirmRequest, MintConfirmResponse, MintPrepareResponse
 from app.services.solana_service import (
@@ -16,7 +14,6 @@ from app.services.solana_service import (
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
-_settings = get_settings()
 
 
 @router.post("/builder-pass/prepare", response_model=MintPrepareResponse)
@@ -38,28 +35,12 @@ async def prepare_builder_pass_mint(request: Request):
 
 @router.post("/builder-pass/confirm", response_model=MintConfirmResponse)
 async def confirm_builder_pass_mint(request: Request, body: MintConfirmRequest):
-    """Submit the fully-signed mint transaction and mark the user as a Builder Pass holder."""
-    # Submit to chain
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            MAINNET_RPC_URL,
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "sendTransaction",
-                "params": [body.signed_transaction, {"encoding": "base64", "skipPreflight": False}],
-            },
-        )
-        result = resp.json()
+    """Poll for the wallet-submitted mint tx and mark the user as a Builder Pass holder."""
+    tx_sig = body.tx_signature
+    _log.info("Confirming builder pass mint tx: %s", tx_sig)
 
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=f"Transaction rejected: {result['error']}")
-
-    tx_sig = result["result"]
-    _log.info("Builder pass mint submitted: %s", tx_sig)
-
-    # Poll for confirmation (up to 30 s)
-    for _ in range(30):
+    # Wallet already submitted — poll until confirmed (up to 60 s)
+    for _ in range(60):
         await asyncio.sleep(1)
         confirm = await _rpc_post(
             "getTransaction",

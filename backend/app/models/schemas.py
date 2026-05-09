@@ -50,7 +50,7 @@ class MintPrepareResponse(BaseModel):
 
 
 class MintConfirmRequest(BaseModel):
-    signed_transaction: str
+    tx_signature: str
     mint_address: str
 
 

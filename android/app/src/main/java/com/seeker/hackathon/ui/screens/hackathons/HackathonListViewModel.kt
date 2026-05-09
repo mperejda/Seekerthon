@@ -83,8 +83,8 @@ class HackathonListViewModel @Inject constructor(
             _state.value = _state.value.copy(isMinting = true, error = null)
             try {
                 val prepare = api.prepareMint()
-                val signedTx = walletRepo.signMintTransaction(sender, prepare.transaction_b64).getOrThrow()
-                api.confirmMint(MintConfirmRequestDto(signed_transaction = signedTx, mint_address = prepare.mint_address))
+                val txSignature = walletRepo.signAndSendMintTransaction(sender, prepare.transaction_b64).getOrThrow()
+                api.confirmMint(MintConfirmRequestDto(tx_signature = txSignature, mint_address = prepare.mint_address))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isMinting = false, error = e.message ?: "Mint failed")
