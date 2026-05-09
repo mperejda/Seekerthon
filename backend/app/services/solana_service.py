@@ -22,7 +22,7 @@ _log = logging.getLogger(__name__)
 _settings = get_settings()
 
 RPC_URL = _settings.solana_rpc_url
-MAINNET_RPC_URL = "https://api.mainnet-beta.solana.com"
+MAINNET_RPC_URL = _settings.solana_mainnet_rpc_url
 SKR_MINT = _settings.skr_token_mint
 GENESIS_COLLECTION = _settings.seeker_genesis_collection
 VOTING_PROGRAM = _settings.voting_program_id
@@ -31,6 +31,12 @@ USDC_MINT = _settings.usdc_mint
 USDC_DECIMALS = 6
 MAX_MULTIPLIER = _settings.max_vote_multiplier
 SKR_PER_STEP = _settings.skr_per_multiplier_step
+
+# SKR staking program — on-chain contract where SKR holders stake
+SKR_STAKING_PROGRAM = "SKRskrmtL83pcL4YqLWt6iPefDqwXQWHSw9S9vz94BZ"
+_STAKING_ACCT_SIZE = 169    # per-user staking account size in bytes
+_STAKING_WALLET_OFFSET = 41 # user wallet pubkey starts at byte 41
+_STAKING_AMOUNT_OFFSET = 105 # staked u64 (LE, 6 decimals) starts at byte 105
 
 # SPL Token program
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -58,52 +64,56 @@ def _find_ata(wallet: Pubkey, mint: Pubkey) -> Pubkey:
 
 async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
     """
-    Returns (skr_balance, skr_staked) for a wallet.
-    skr_balance: raw token amount in the ATA
-    skr_staked: amount locked in the staking vault PDA
+    Returns (skr_balance, skr_staked) as whole-token integers (6 decimals stripped).
+    skr_balance: liquid SKR in all token accounts owned by the wallet
+    skr_staked: SKR locked in the SKR staking program (per-user account at offset 105)
     """
-    wallet = Pubkey.from_string(wallet_address)
-    mint = Pubkey.from_string(SKR_MINT)
-    ata = _find_ata(wallet, mint)
-
-    # Use getTokenAccountsByOwner so we don't depend on ATA address derivation
+    # --- Liquid balance: all token accounts for this wallet/mint ---
     resp = await _rpc_post(
         "getTokenAccountsByOwner",
-        [
-            wallet_address,
-            {"mint": SKR_MINT},
-            {"encoding": "jsonParsed", "commitment": "confirmed"},
-        ],
+        [wallet_address, {"mint": SKR_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
     )
-    balance = 0
-    decimals = 0
+    balance_raw = 0
+    decimals = 6  # SKR always has 6 decimals; used as fallback if no accounts found
     for acct in (resp.get("result", {}).get("value") or []):
         info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
         ta = info.get("tokenAmount", {})
-        balance += int(ta.get("amount", 0))
-        if decimals == 0:
-            decimals = int(ta.get("decimals", 0))
+        balance_raw += int(ta.get("amount", 0))
+        decimals = int(ta.get("decimals", decimals))
 
-    divisor = 10 ** decimals if decimals > 0 else 1
+    divisor = 10 ** decimals
 
-    # Staking vault PDA: seeds = [b"stake", wallet, mint]
-    staking_pda, _ = Pubkey.find_program_address(
-        [b"stake", bytes(wallet), bytes(mint)],
-        Pubkey.from_string(VOTING_PROGRAM),
-    )
-    stake_resp = await _rpc_post(
-        "getAccountInfo",
-        [str(staking_pda), {"encoding": "base64", "commitment": "confirmed"}],
-    )
-    staked = 0
-    if stake_resp.get("result", {}).get("value"):
-        data_b64 = stake_resp["result"]["value"]["data"][0]
-        data = base64.b64decode(data_b64)
-        # Layout: [discriminator(8)] [amount(u64)] [owner(32)] [locked_until(i64)]
-        if len(data) >= 48:
-            staked = struct.unpack_from("<Q", data, 8)[0]
+    # --- Staked balance: getProgramAccounts on SKR staking program filtered by wallet ---
+    # Per-user staking accounts are 169 bytes; wallet pubkey lives at byte offset 41;
+    # staked u64 (LE) lives at byte offset 105.
+    staked_raw = 0
+    try:
+        stake_resp = await _rpc_post(
+            "getProgramAccounts",
+            [
+                SKR_STAKING_PROGRAM,
+                {
+                    "encoding": "base64",
+                    "commitment": "confirmed",
+                    "filters": [
+                        {"dataSize": _STAKING_ACCT_SIZE},
+                        {"memcmp": {"offset": _STAKING_WALLET_OFFSET, "bytes": wallet_address}},
+                    ],
+                },
+            ],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        accounts = stake_resp.get("result") or []
+        if accounts:
+            data = base64.b64decode(accounts[0]["account"]["data"][0])
+            if len(data) >= _STAKING_AMOUNT_OFFSET + 8:
+                staked_raw = struct.unpack_from("<Q", data, _STAKING_AMOUNT_OFFSET)[0]
+                _log.info("Staked SKR for %s: %d raw (%s whole)", wallet_address, staked_raw, staked_raw // divisor)
+    except Exception as exc:
+        _log.warning("Staked SKR lookup failed for %s: %s", wallet_address, exc)
 
-    return balance // divisor, staked // divisor
+    return balance_raw // divisor, staked_raw // divisor
 
 
 def compute_vote_weight(skr_staked: int) -> float:

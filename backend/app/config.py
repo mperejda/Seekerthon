@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str
     solana_rpc_url: str = "https://api.mainnet-beta.solana.com"
     solana_rpc_url_devnet: str = "https://api.devnet.solana.com"
+    solana_mainnet_rpc_url: str = "https://api.mainnet-beta.solana.com"
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7

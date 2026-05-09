@@ -1,8 +1,11 @@
 import base58
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request
 from jose import jwt
+
+log = logging.getLogger(__name__)
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
@@ -96,13 +99,17 @@ async def get_me(request: Request):
     user_id = request.state.user_id
     wallet = request.state.wallet_address
 
-    existing = db.table("users").select("id").eq("id", user_id).maybe_single().execute()
+    existing = db.table("users").select("*").eq("id", user_id).maybe_single().execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail="User not found")
 
     skr_balance, skr_staked = await get_skr_balance(wallet)
     vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
-    is_seeker_verified = await verify_seeker_genesis_holder(wallet)
+    try:
+        is_seeker_verified = await verify_seeker_genesis_holder(wallet)
+    except Exception as exc:
+        log.warning("Genesis check failed for %s, using cached value: %s", wallet, exc)
+        is_seeker_verified = existing.data.get("is_seeker_verified", False)
 
     result = db.table("users").update({
         "skr_balance": skr_balance,
