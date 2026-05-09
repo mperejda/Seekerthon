@@ -114,7 +114,7 @@ fun HackathonListScreen(
                             hasBuilderPass = state.hasBuilderPass,
                             isMinting = state.isMinting,
                             mintSuccess = state.mintSuccess,
-                            onMint = { viewModel.mintBuilderPass() },
+                            onMint = { viewModel.mintBuilderPass(sender) },
                         )
                         Spacer(Modifier.height(8.dp))
                     }
