@@ -2,8 +2,6 @@ package com.seeker.hackathon.ui.screens.hackathons
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import com.seeker.hackathon.data.remote.MintConfirmRequestDto
 import com.seeker.hackathon.data.remote.SeekerApi
 import com.seeker.hackathon.data.repository.WalletRepository
 import com.seeker.hackathon.domain.model.Hackathon
@@ -78,13 +76,11 @@ class HackathonListViewModel @Inject constructor(
         }
     }
 
-    fun mintBuilderPass(sender: ActivityResultSender) {
+    fun mintBuilderPass() {
         viewModelScope.launch {
             _state.value = _state.value.copy(isMinting = true, error = null)
             try {
-                val prepare = api.prepareMint()
-                val txSignature = walletRepo.signAndSendMintTransaction(sender, prepare.transaction_b64).getOrThrow()
-                api.confirmMint(MintConfirmRequestDto(tx_signature = txSignature, mint_address = prepare.mint_address))
+                api.claimBuilderPass()
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isMinting = false, error = e.message ?: "Mint failed")

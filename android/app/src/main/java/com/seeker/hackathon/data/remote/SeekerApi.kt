@@ -101,9 +101,6 @@ interface SeekerApi {
     @GET("votes/mine")
     suspend fun getMyVotes(): List<String>
 
-    @POST("mint/builder-pass/prepare")
-    suspend fun prepareMint(): MintPrepareResponseDto
-
-    @POST("mint/builder-pass/confirm")
-    suspend fun confirmMint(@Body body: MintConfirmRequestDto): MintConfirmResponseDto
+    @POST("mint/builder-pass/claim")
+    suspend fun claimBuilderPass(): MintConfirmResponseDto
 }

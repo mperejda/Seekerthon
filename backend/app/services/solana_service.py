@@ -143,13 +143,10 @@ def _borsh_str(s: str) -> bytes:
     return struct.pack("<I", len(enc)) + enc
 
 
-async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, str]:
+async def mint_builder_pass_server_side(buyer_wallet: str) -> str:
     """
-    Build a partially-signed NFT mint transaction for the Alpine Labs Builder Pass.
-    Instructions: createAccount + initializeMint + createATA + mintTo +
-                  createMetadataV3 + createMasterEditionV3 + USDC transfer ($10).
-    Backend signs with authority + mint keypairs; buyer adds their signature via MWA.
-    Returns (base64_tx, mint_address).
+    Fully server-side NFT mint — authority keypair is fee payer and sole signer.
+    No user wallet interaction required. Returns the confirmed tx signature.
     """
     settings = _settings
 
@@ -160,13 +157,9 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
     mint_pk = mint_kp.pubkey()
 
     buyer_pk = Pubkey.from_string(buyer_wallet)
-    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
     collection_mint_pk = Pubkey.from_string(settings.builder_pass_collection_mint)
-    treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
 
     buyer_nft_ata = _find_ata(buyer_pk, mint_pk)
-    buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
-    treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
 
     metadata_pda, _ = Pubkey.find_program_address(
         [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pk)],
@@ -183,11 +176,11 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
     rent_resp = await _rpc_post("getMinimumBalanceForRentExemption", [82], rpc_url=MAINNET_RPC_URL)
     mint_rent = rent_resp["result"]
 
-    # 1. CreateAccount (system program) — allocate mint account
+    # 1. CreateAccount — authority pays for the new mint account
     ix_create_account = Instruction(
         program_id=SYSTEM_PROGRAM_ID,
         accounts=[
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),
             AccountMeta(pubkey=mint_pk, is_signer=True, is_writable=True),
         ],
         data=(
@@ -214,18 +207,18 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
         ),
     )
 
-    # 3. Create ATA for buyer (idempotent)
+    # 3. Create buyer's NFT ATA (authority pays, buyer is the owner)
     ix_create_ata = Instruction(
         program_id=ASSOCIATED_TOKEN_PROGRAM,
         accounts=[
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),
             AccountMeta(pubkey=buyer_nft_ata, is_signer=False, is_writable=True),
             AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         ],
-        data=bytes([1]),  # CreateIdempotent
+        data=bytes([1]),
     )
 
     # 4. MintTo — 1 token to buyer's ATA
@@ -239,15 +232,15 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
         data=bytes([7]) + struct.pack("<Q", 1),
     )
 
-    # 5. CreateMetadataAccountV3
+    # 5. CreateMetadataAccountV3 — authority is mint_authority, payer, and update_authority
     ix_create_metadata = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
             AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # mint authority
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),         # payer
-            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=False),  # update authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # mint authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),   # payer
+            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=False), # update authority
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
         ],
@@ -267,60 +260,67 @@ async def build_builder_pass_mint_transaction(buyer_wallet: str) -> tuple[str, s
         ),
     )
 
-    # 6. CreateMasterEditionV3 — max_supply = Some(0) for 1/1
+    # 6. CreateMasterEditionV3 — max_supply = Some(0), authority is update_authority, mint_authority, and payer
     ix_create_edition = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
             AccountMeta(pubkey=edition_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # update authority
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),   # mint authority
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),         # payer
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # update authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # mint authority
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),   # payer
             AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=False),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
         ],
-        data=bytes([17]) + bytes([1]) + struct.pack("<Q", 0),  # max_supply = Some(0)
-    )
-
-    # 7. SPL Token Transfer — $10 USDC from buyer to treasury
-    ix_usdc_transfer = Instruction(
-        program_id=TOKEN_PROGRAM_ID,
-        accounts=[
-            AccountMeta(pubkey=buyer_usdc_ata, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=treasury_usdc_ata, is_signer=False, is_writable=True),
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=False),
-        ],
-        data=bytes([3]) + struct.pack("<Q", 10_000_000),  # 10 USDC (6 decimals)
+        data=bytes([17]) + bytes([1]) + struct.pack("<Q", 0),
     )
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
 
-    instructions = [
-        ix_create_account, ix_init_mint, ix_create_ata,
-        ix_mint_to, ix_create_metadata, ix_create_edition,
-    ]
-    if settings.builder_pass_price_usdc > 0:
-        instructions.append(ix_usdc_transfer)
-    msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
+    msg = Message.new_with_blockhash(
+        [ix_create_account, ix_init_mint, ix_create_ata, ix_mint_to, ix_create_metadata, ix_create_edition],
+        authority_pk,
+        recent_blockhash,
+    )
+    tx = Transaction([authority_kp, mint_kp], msg, recent_blockhash)
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
 
-    # Partially sign with authority + mint keypairs; buyer slot stays zeroed
-    msg_bytes = bytes(msg)
-    num_signers = msg.header.num_required_signatures
-    sigs: list[SoldersSignature] = []
-    for i in range(num_signers):
-        pk = msg.account_keys[i]
-        if pk == authority_pk:
-            sigs.append(authority_kp.sign_message(msg_bytes))
-        elif pk == mint_pk:
-            sigs.append(mint_kp.sign_message(msg_bytes))
-        else:
-            sigs.append(SoldersSignature.default())
+    # Simulate before submitting
+    sim = await _rpc_post(
+        "simulateTransaction",
+        [tx_b64, {"encoding": "base64", "commitment": "confirmed", "sigVerify": False}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    sim_val = sim.get("result", {}).get("value", {})
+    if sim_val.get("err"):
+        logs = sim_val.get("logs") or []
+        raise ValueError(f"Mint simulation failed: {sim_val['err']} — {logs[-3:]}")
 
-    tx = Transaction.populate(msg, sigs)
-    return base64.b64encode(bytes(tx)).decode(), str(mint_pk)
+    # Submit
+    send = await _rpc_post("sendTransaction", [tx_b64, {"encoding": "base64"}], rpc_url=MAINNET_RPC_URL)
+    if "error" in send:
+        raise ValueError(f"sendTransaction failed: {send['error']}")
+
+    tx_sig = send["result"]
+    _log.info("Builder pass mint submitted: %s", tx_sig)
+
+    # Poll for confirmation
+    for _ in range(30):
+        await asyncio.sleep(2)
+        confirm = await _rpc_post(
+            "getTransaction",
+            [tx_sig, {"commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        if confirm.get("result"):
+            if confirm["result"].get("meta", {}).get("err"):
+                raise ValueError("Transaction failed on-chain")
+            return tx_sig
+
+    raise ValueError("Transaction confirmation timeout")
 
 
 async def verify_builder_pass_holder(wallet_address: str) -> bool:
