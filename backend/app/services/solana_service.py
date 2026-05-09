@@ -347,7 +347,22 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
     msg = Message.new_with_blockhash([ix], buyer_pk, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
-    return base64.b64encode(bytes(tx)).decode()
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
+
+    # Pre-flight: simulate server-side so any RPC/account error surfaces here
+    # rather than as a cryptic "could not be simulated" in the wallet.
+    sim = await _rpc_post(
+        "simulateTransaction",
+        [tx_b64, {"encoding": "base64", "sigVerify": False, "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    sim_err = (sim.get("result") or {}).get("value", {}).get("err")
+    if sim_err is not None:
+        logs = (sim.get("result") or {}).get("value", {}).get("logs", [])
+        _log.error("USDC transfer pre-flight failed err=%s logs=%s", sim_err, logs)
+        raise Exception(f"USDC transfer simulation failed: {sim_err} — logs: {logs[-3:] if logs else []}")
+
+    return tx_b64
 
 
 async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amount: int) -> bool:

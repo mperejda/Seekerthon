@@ -128,13 +128,8 @@ class WalletRepository @Inject constructor(
         runCatching {
             val txBytes = Base64.decode(transactionB64, Base64.DEFAULT)
             val adapter = newAdapter()
-            when (val r = adapter.transact(sender) { authResult ->
-                authResult.accounts.first().publicKey
-            }) {
-                is TransactionResult.Success -> Unit
-                is TransactionResult.Failure -> throw Exception("Authorization failed: ${r.message}")
-                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
-            }
+            // Single session: adapter handles authorize internally, then signs+sends in one wallet prompt.
+            // Two sessions would leave the blockhash stale (150 slots ≈ 60 s) by the second prompt.
             when (val r = adapter.transact(sender) { _ ->
                 signAndSendTransactions(arrayOf(txBytes))
             }) {
