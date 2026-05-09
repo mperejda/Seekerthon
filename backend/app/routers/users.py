@@ -66,7 +66,7 @@ async def login(body: UserCreate):
 
     # Fetch on-chain state
     skr_balance, skr_staked = await get_skr_balance(body.wallet_address)
-    vote_multiplier = compute_vote_weight(skr_staked)
+    vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
     is_seeker_verified = await verify_seeker_genesis_holder(body.wallet_address)
 
     user_data = {
@@ -101,7 +101,7 @@ async def get_me(request: Request):
         raise HTTPException(status_code=404, detail="User not found")
 
     skr_balance, skr_staked = await get_skr_balance(wallet)
-    vote_multiplier = compute_vote_weight(skr_staked)
+    vote_multiplier = compute_vote_weight(skr_balance + skr_staked)
     is_seeker_verified = await verify_seeker_genesis_holder(wallet)
 
     result = db.table("users").update({
