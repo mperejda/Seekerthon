@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { useUser } from "./providers";
 
 const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
@@ -31,10 +32,10 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function HomePage() {
+  const user = useUser();
   const [hackathons, setHackathons] = useState<Hackathon[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/hackathons/`)
@@ -45,14 +46,6 @@ export default function HomePage() {
       .then(setHackathons)
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
-
-    const token = localStorage.getItem("seeker_token");
-    if (token) {
-      fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => r.ok ? r.json() : null)
-        .then((u) => u && setUserId(u.id))
-        .catch(() => {});
-    }
   }, []);
 
   return (
@@ -126,7 +119,7 @@ export default function HomePage() {
                   >
                     Submit Project
                   </a>
-                  {userId && h.organizer_id === userId && (
+                  {user && h.organizer_id === user.id && (
                     <a
                       href={`/dashboard/${h.id}`}
                       className="text-sm text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-center"

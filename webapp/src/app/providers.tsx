@@ -3,10 +3,18 @@
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import "@solana/wallet-adapter-react-ui/styles.css";
-import { ReactNode, useEffect, useMemo, useRef } from "react";
+import { createContext, useContext, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.solana.com";
+
+export interface SeekerUser {
+  id: string;
+  wallet_address: string;
+}
+
+export const UserContext = createContext<SeekerUser | null>(null);
+export function useUser() { return useContext(UserContext); }
 
 function encodeBase58(bytes: Uint8Array): string {
   const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -21,6 +29,18 @@ function encodeBase58(bytes: Uint8Array): string {
 function AuthGate({ children }: { children: ReactNode }) {
   const { publicKey, signMessage, connected, disconnecting } = useWallet();
   const authing = useRef(false);
+  const [user, setUser] = useState<SeekerUser | null>(null);
+
+  useEffect(() => {
+    // Restore user from an existing token on page load
+    const token = localStorage.getItem("seeker_token");
+    if (token && !user) {
+      fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.ok ? r.json() : null)
+        .then((u) => u && setUser({ id: u.id, wallet_address: u.wallet_address }))
+        .catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
@@ -38,8 +58,9 @@ function AuthGate({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ wallet_address: walletAddress, signature: encodeBase58(sig), challenge }),
         });
-        const { access_token } = await loginRes.json();
-        localStorage.setItem("seeker_token", access_token);
+        const data = await loginRes.json();
+        localStorage.setItem("seeker_token", data.access_token);
+        setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
       } catch (e) {
         console.error("Wallet auth failed", e);
       } finally {
@@ -49,10 +70,13 @@ function AuthGate({ children }: { children: ReactNode }) {
   }, [connected, publicKey, signMessage]);
 
   useEffect(() => {
-    if (disconnecting) localStorage.removeItem("seeker_token");
+    if (disconnecting) {
+      localStorage.removeItem("seeker_token");
+      setUser(null);
+    }
   }, [disconnecting]);
 
-  return <>{children}</>;
+  return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }
 
 export function Providers({ children }: { children: ReactNode }) {

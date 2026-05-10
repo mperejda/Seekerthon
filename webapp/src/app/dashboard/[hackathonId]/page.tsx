@@ -1,6 +1,7 @@
 "use client";
 import { use, useEffect, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useUser } from "../../providers";
 import dynamic from "next/dynamic";
 const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
@@ -36,6 +37,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
 
+  const user = useUser();
   const [projects, setProjects] = useState<Project[]>([]);
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
   const hackathonStatus = hackathon?.status ?? null;
@@ -43,22 +45,8 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
   const [verifying, setVerifying] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("seeker_token");
-
-    // Resolve current user then load hackathon data
-    const mePromise = token
-      ? fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.ok ? r.json() : null)
-          .then((u) => { if (u) setUserId(u.id); return u?.id ?? null; })
-          .catch(() => null)
-      : Promise.resolve(null);
-
-    mePromise.finally(() => setAuthChecked(true));
-
     fetch(`${API}/hackathons/${hackathonId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((h) => h && setHackathon(h));
@@ -73,9 +61,8 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       .finally(() => setLoading(false));
   }, [hackathonId]);
 
-  const isOrganizer = authChecked && hackathon !== null && userId === hackathon.organizer_id;
-
-  if (authChecked && hackathon !== null && !isOrganizer) {
+  // Only show the dashboard once both hackathon and user are loaded
+  if (hackathon && user !== undefined && user?.id !== hackathon.organizer_id) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h1>
