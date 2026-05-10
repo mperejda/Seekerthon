@@ -62,7 +62,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
   }, [hackathonId]);
 
   // Only show the dashboard once both hackathon and user are loaded
-  if (hackathon && user !== undefined && user?.id !== hackathon.organizer_id) {
+  if (hackathon && user !== undefined && (user === null || user.id !== hackathon.organizer_id)) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h1>

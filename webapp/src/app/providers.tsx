@@ -13,7 +13,8 @@ export interface SeekerUser {
   wallet_address: string;
 }
 
-export const UserContext = createContext<SeekerUser | null>(null);
+// undefined = auth check in progress, null = confirmed not logged in, SeekerUser = logged in
+export const UserContext = createContext<SeekerUser | null | undefined>(undefined);
 export function useUser() { return useContext(UserContext); }
 
 function encodeBase58(bytes: Uint8Array): string {
@@ -27,21 +28,23 @@ function encodeBase58(bytes: Uint8Array): string {
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
-  const { publicKey, signMessage, connected, disconnecting } = useWallet();
+  const { publicKey, signMessage, connected } = useWallet();
   const authing = useRef(false);
-  const [user, setUser] = useState<SeekerUser | null>(null);
+  const prevConnected = useRef(false);
+  // undefined = auth check in progress, null = confirmed no session, SeekerUser = logged in
+  const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
 
+  // Restore session from JWT on mount — no wallet interaction needed
   useEffect(() => {
-    // Restore user from an existing token on page load
     const token = localStorage.getItem("seeker_token");
-    if (token && !user) {
-      fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => r.ok ? r.json() : null)
-        .then((u) => u && setUser({ id: u.id, wallet_address: u.wallet_address }))
-        .catch(() => {});
-    }
+    if (!token) { setUser(null); return; }
+    fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
+      .catch(() => setUser(null));
   }, []);
 
+  // Sign challenge when wallet connects and no session exists yet
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
     if (localStorage.getItem("seeker_token")) return;
@@ -63,18 +66,23 @@ function AuthGate({ children }: { children: ReactNode }) {
         setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
       } catch (e) {
         console.error("Wallet auth failed", e);
+        setUser(null);
       } finally {
         authing.current = false;
       }
     })();
   }, [connected, publicKey, signMessage]);
 
+  // Clear session on explicit wallet disconnect (connected true→false transition)
   useEffect(() => {
-    if (disconnecting) {
+    if (connected) {
+      prevConnected.current = true;
+    } else if (prevConnected.current) {
+      prevConnected.current = false;
       localStorage.removeItem("seeker_token");
       setUser(null);
     }
-  }, [disconnecting]);
+  }, [connected]);
 
   return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }
@@ -84,7 +92,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ConnectionProvider endpoint={RPC_ENDPOINT}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider wallets={wallets}>
         <WalletModalProvider>
           <AuthGate>{children}</AuthGate>
         </WalletModalProvider>
