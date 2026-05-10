@@ -1,6 +1,5 @@
 // Run `anchor build` before `anchor test` to generate target/idl/escrow.json.
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
 import {
   Keypair,
   PublicKey,
@@ -23,7 +22,7 @@ describe("escrow", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const program = anchor.workspace.Escrow as Program<any>;
+  const program = anchor.workspace.Escrow as any;
   const payer = (provider.wallet as anchor.Wallet).payer;
 
   // Shared token infrastructure
