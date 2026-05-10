@@ -76,8 +76,9 @@ pub mod escrow {
             EscrowError::RecipientCountMismatch,
         );
 
-        let total_bps: u16 = winner_share_bps.iter().sum();
-        require!(total_bps <= 10_000, EscrowError::InvalidShares);
+        require!(!winner_share_bps.is_empty(), EscrowError::InvalidShares);
+        let total_bps: u32 = winner_share_bps.iter().map(|&b| b as u32).sum();
+        require!(total_bps == 10_000, EscrowError::InvalidShares);
 
         let prize = ctx.accounts.hackathon_escrow.prize_usdc;
         let bump = ctx.accounts.hackathon_escrow.bump;

@@ -289,6 +289,82 @@ describe("escrow", () => {
     );
   });
 
+  it("rejects voting_start equal to voting_end", async () => {
+    const { organizer, organizerAta } = await setupOrganizer(1_000_000);
+    const hackathonId = randomHackathonId();
+    const now = Math.floor(Date.now() / 1000);
+    const escrowPda = findEscrowPda(hackathonId);
+    const vault = await getAssociatedTokenAddress(usdcMint, escrowPda, true);
+
+    await expectError(
+      () =>
+        program.methods
+          .createHackathon(
+            hackathonId,
+            new anchor.BN(1_000_000),
+            new anchor.BN(now + 3600),
+            new anchor.BN(now + 3600) // equal, not strictly greater
+          )
+          .accounts({
+            organizer: organizer.publicKey,
+            usdcMint,
+            hackathonEscrow: escrowPda,
+            vault,
+            organizerUsdcAta: organizerAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([organizer])
+          .rpc(),
+      "InvalidTimestamps"
+    );
+  });
+
+  it("rejects duplicate hackathon ID", async () => {
+    const { organizer, organizerAta } = await setupOrganizer(200_000_000);
+    const hackathonId = randomHackathonId();
+    const now = Math.floor(Date.now() / 1000);
+    const escrowPda = findEscrowPda(hackathonId);
+    const vault = await getAssociatedTokenAddress(usdcMint, escrowPda, true);
+
+    await createHackathon({
+      organizer,
+      organizerAta,
+      hackathonId,
+      prizeUsdc: 100_000_000,
+      votingStart: new anchor.BN(now + 3600),
+      votingEnd: new anchor.BN(now + 7200),
+    });
+
+    // Second create_hackathon with the same ID must fail — PDA already initialised
+    await expectError(
+      () =>
+        program.methods
+          .createHackathon(
+            hackathonId,
+            new anchor.BN(100_000_000),
+            new anchor.BN(now + 3600),
+            new anchor.BN(now + 7200)
+          )
+          .accounts({
+            organizer: organizer.publicKey,
+            usdcMint,
+            hackathonEscrow: escrowPda,
+            vault,
+            organizerUsdcAta: organizerAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .signers([organizer])
+          .rpc(),
+      "already in use"
+    );
+  });
+
   // ── release_prize ──────────────────────────────────────────────────────────
 
   describe("release_prize", () => {
@@ -570,6 +646,143 @@ describe("escrow", () => {
             .rpc(),
         "InvalidRecipientMint"
       );
+    });
+
+    it("rejects an empty winner list", async () => {
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
+
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, [])
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint,
+              hackathonEscrow: ep,
+              vault: v,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts([])
+            .signers([org])
+            .rpc(),
+        "InvalidShares"
+      );
+    });
+
+    it("rejects bps summing to less than 100%", async () => {
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
+      const { winnerAta } = await setupWinner();
+
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, [5_000]) // only 50% — prize would be stranded
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint,
+              hackathonEscrow: ep,
+              vault: v,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts([
+              { pubkey: winnerAta, isSigner: false, isWritable: true },
+            ])
+            .signers([org])
+            .rpc(),
+        "InvalidShares"
+      );
+    });
+
+    it("rejects bps overflow that wraps to a valid u16 value", async () => {
+      // 7 × 10_000 = 70_000 wraps to 4_464 in u16, bypassing the old <= 10_000 check.
+      // The u32 sum correctly sees 70_000 != 10_000 and rejects it.
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
+      const winners = await Promise.all(
+        Array.from({ length: 7 }, () => setupWinner())
+      );
+
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, [10_000, 10_000, 10_000, 10_000, 10_000, 10_000, 10_000])
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint,
+              hackathonEscrow: ep,
+              vault: v,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts(
+              winners.map((w) => ({ pubkey: w.winnerAta, isSigner: false, isWritable: true }))
+            )
+            .signers([org])
+            .rpc(),
+        "InvalidShares"
+      );
+    });
+
+    it("single winner receives full prize and vault is drained to zero", async () => {
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
+      const { winnerAta } = await setupWinner();
+
+      await program.methods
+        .releasePrize(hId, [10_000])
+        .accounts({
+          organizer: org.publicKey,
+          usdcMint,
+          hackathonEscrow: ep,
+          vault: v,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts([{ pubkey: winnerAta, isSigner: false, isWritable: true }])
+        .signers([org])
+        .rpc();
+
+      const winnerAcct = await getAccount(provider.connection, winnerAta);
+      assert.equal(Number(winnerAcct.amount), 1_000_000);
+
+      const vaultAcct = await getAccount(provider.connection, v);
+      assert.equal(Number(vaultAcct.amount), 0, "vault must be fully drained");
     });
 
     it("rejects a double release on the same hackathon", async () => {
