@@ -785,10 +785,113 @@ describe("escrow", () => {
       assert.equal(Number(vaultAcct.amount), 0, "vault must be fully drained");
     });
 
-    it("rejects a double release on the same hackathon", async () => {
-      // The first release_prize test already released this hackathon (status = Released)
-      const { winnerAta } = await setupWinner();
+    it("rejects release_prize when usdc_mint does not match the escrow's registered mint (fake-mint attack)", async () => {
+      // CRITICAL: an attacker supplies a worthless mint as the `usdc_mint` argument.
+      // Without `has_one = usdc_mint`, all per-recipient checks would pass because
+      // the recipient ATA also uses the fake mint, but the escrow would be marked
+      // Released while the real USDC vault remains permanently locked.
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: realVault } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
 
+      // Attacker creates their own worthless mint and a recipient ATA for it
+      const fakeMint = await createMint(
+        provider.connection,
+        payer,
+        mintAuthority.publicKey,
+        null,
+        6
+      );
+      const fakeRecipient = Keypair.generate();
+      await fund(fakeRecipient.publicKey);
+      const fakeRecipientAta = await createAssociatedTokenAccount(
+        provider.connection,
+        payer,
+        fakeMint,
+        fakeRecipient.publicKey
+      );
+      // Pass the REAL (initialized) vault so Anchor doesn't reject on AccountNotInitialized
+      // before it reaches the has_one check on hackathon_escrow.  Accounts are validated in
+      // declaration order: hackathon_escrow (has_one = usdc_mint) comes before vault, so
+      // InvalidMint fires first.
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, [10_000])
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint: fakeMint,          // attacker supplies their worthless mint
+              hackathonEscrow: ep,
+              vault: realVault,            // real vault (initialized) so we reach has_one check
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts([
+              { pubkey: fakeRecipientAta, isSigner: false, isWritable: true },
+            ])
+            .signers([org])
+            .rpc(),
+        "InvalidMint"
+      );
+
+      // Verify the escrow is still Active — the real USDC is safe
+      const escrow = await program.account.hackathonEscrow.fetch(ep);
+      assert.deepEqual(escrow.status, { active: {} }, "escrow must remain Active after failed attack");
+      const vaultAcct = await getAccount(provider.connection, realVault);
+      assert.equal(Number(vaultAcct.amount), 1_000_000, "real USDC vault must be untouched");
+    });
+
+    it("rejects more than 10 recipients", async () => {
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
+      });
+
+      // 11 winners — one over the MAX_RECIPIENTS cap
+      const winners = await Promise.all(
+        Array.from({ length: 11 }, () => setupWinner())
+      );
+
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, Array(11).fill(1_000)) // 11 × 1000 bps = 11 000 ≠ 10 000
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint,
+              hackathonEscrow: ep,
+              vault: v,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts(
+              winners.map((w) => ({ pubkey: w.winnerAta, isSigner: false, isWritable: true }))
+            )
+            .signers([org])
+            .rpc(),
+        "TooManyRecipients"
+      );
+    });
+
+    it("rejects a double release on the same hackathon", async () => {
+      // The shared hackathon was released by the first test in this block.
+      // Reuse organizerAta as the dummy recipient — the tx fails at the status check
+      // before reaching the transfer loop, so the recipient address is irrelevant.
+      // Avoids calling setupWinner() (airdrop + confirmTransaction) which adds enough
+      // wall-clock delay on a fast localnet to stale the subsequent blockhash.
       await expectError(
         () =>
           program.methods
@@ -801,7 +904,7 @@ describe("escrow", () => {
               tokenProgram: TOKEN_PROGRAM_ID,
             })
             .remainingAccounts([
-              { pubkey: winnerAta, isSigner: false, isWritable: true },
+              { pubkey: organizerAta, isSigner: false, isWritable: true },
             ])
             .signers([organizer])
             .rpc(),

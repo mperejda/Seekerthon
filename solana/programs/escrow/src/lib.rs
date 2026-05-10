@@ -6,6 +6,8 @@ use anchor_spl::{
 
 declare_id!("GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs");
 
+const MAX_RECIPIENTS: usize = 10;
+
 #[program]
 pub mod escrow {
     use super::*;
@@ -56,7 +58,7 @@ pub mod escrow {
 
     pub fn release_prize<'info>(
         ctx: Context<'info, ReleasePrize<'info>>,
-        hackathon_id: [u8; 16],
+        _hackathon_id: [u8; 16],
         winner_share_bps: Vec<u16>,
     ) -> Result<()> {
         require!(
@@ -75,13 +77,21 @@ pub mod escrow {
             ctx.remaining_accounts.len() == winner_share_bps.len(),
             EscrowError::RecipientCountMismatch,
         );
-
         require!(!winner_share_bps.is_empty(), EscrowError::InvalidShares);
+        require!(
+            winner_share_bps.len() <= MAX_RECIPIENTS,
+            EscrowError::TooManyRecipients,
+        );
+
         let total_bps: u32 = winner_share_bps.iter().map(|&b| b as u32).sum();
         require!(total_bps == 10_000, EscrowError::InvalidShares);
 
         let prize = ctx.accounts.hackathon_escrow.prize_usdc;
         let bump = ctx.accounts.hackathon_escrow.bump;
+        // Use the stored hackathon_id for signer seeds rather than the instruction
+        // argument — the has_one + seeds constraints guarantee they are the same,
+        // but sourcing from the account is more defensive.
+        let hackathon_id = ctx.accounts.hackathon_escrow.hackathon_id;
         let usdc_mint_key = ctx.accounts.usdc_mint.key();
         let seeds: &[&[u8]] = &[b"hackathon_escrow", hackathon_id.as_ref(), &[bump]];
         let signer_seeds = &[seeds];
@@ -179,7 +189,7 @@ pub struct CreateHackathon<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(hackathon_id: [u8; 16])]
+#[instruction(_hackathon_id: [u8; 16])]
 pub struct ReleasePrize<'info> {
     #[account(mut)]
     pub organizer: Signer<'info>,
@@ -188,8 +198,12 @@ pub struct ReleasePrize<'info> {
 
     #[account(
         mut,
-        seeds = [b"hackathon_escrow", hackathon_id.as_ref()],
+        seeds = [b"hackathon_escrow", _hackathon_id.as_ref()],
         bump = hackathon_escrow.bump,
+        // Ensures the mint passed in matches what was registered at creation time.
+        // Without this, an attacker could supply a worthless mint, pass all checks,
+        // mark the escrow Released, and permanently strand the real USDC.
+        has_one = usdc_mint @ EscrowError::InvalidMint,
     )]
     pub hackathon_escrow: Account<'info, HackathonEscrow>,
 
@@ -249,7 +263,7 @@ pub enum EscrowError {
     NotOrganizer,
     #[msg("Prize already released")]
     AlreadyReleased,
-    #[msg("Winner shares exceed 100%")]
+    #[msg("Winner shares must sum to exactly 10000 bps (100%)")]
     InvalidShares,
     #[msg("Prize amount must be > 0")]
     InvalidPrize,
@@ -265,4 +279,8 @@ pub enum EscrowError {
     RecipientCountMismatch,
     #[msg("Voting period has not ended yet")]
     VotingNotEnded,
+    #[msg("Token mint does not match the escrow's registered mint")]
+    InvalidMint,
+    #[msg("Too many recipients — maximum 10")]
+    TooManyRecipients,
 }
