@@ -61,8 +61,23 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       .finally(() => setLoading(false));
   }, [hackathonId]);
 
-  // Only show the dashboard once both hackathon and user are loaded
-  if (hackathon && user !== undefined && (user === null || user.id !== hackathon.organizer_id)) {
+  // Wait for auth to resolve before gating
+  if (user === undefined) {
+    return <div className="text-center py-20 text-gray-400">Loading...</div>;
+  }
+
+  if (user === null) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">Connect your wallet</h1>
+        <p className="text-gray-500 mb-6">Sign in with your organizer wallet to access this dashboard.</p>
+        <WalletMultiButton />
+      </div>
+    );
+  }
+
+  if (hackathon && user.id !== hackathon.organizer_id) {
+    console.log("Access denied — user.id:", user.id, "organizer_id:", hackathon.organizer_id);
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h1>
