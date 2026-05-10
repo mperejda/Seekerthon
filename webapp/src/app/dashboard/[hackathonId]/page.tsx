@@ -11,6 +11,7 @@ import { Transaction } from "@solana/web3.js";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 interface Hackathon {
+  organizer_id: string;
   title: string;
   description: string;
   status: string;
@@ -42,9 +43,22 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
   const [verifying, setVerifying] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("seeker_token");
+
+    // Resolve current user then load hackathon data
+    const mePromise = token
+      ? fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => r.ok ? r.json() : null)
+          .then((u) => { if (u) setUserId(u.id); return u?.id ?? null; })
+          .catch(() => null)
+      : Promise.resolve(null);
+
+    mePromise.finally(() => setAuthChecked(true));
+
     fetch(`${API}/hackathons/${hackathonId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((h) => h && setHackathon(h));
@@ -58,6 +72,18 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [hackathonId]);
+
+  const isOrganizer = authChecked && hackathon !== null && userId === hackathon.organizer_id;
+
+  if (authChecked && hackathon !== null && !isOrganizer) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h1>
+        <p className="text-gray-500">This page is only available to the hackathon organizer.</p>
+        <a href="/" className="mt-6 inline-block text-purple-600 hover:underline">← Back to hackathons</a>
+      </div>
+    );
+  }
 
   const setStatus = async (status: string) => {
     setStatusUpdating(true);

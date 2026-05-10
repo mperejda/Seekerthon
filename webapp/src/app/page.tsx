@@ -12,6 +12,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 interface Hackathon {
   id: string;
+  organizer_id: string;
   title: string;
   description: string;
   status: string;
@@ -33,6 +34,7 @@ export default function HomePage() {
   const [hackathons, setHackathons] = useState<Hackathon[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/hackathons/`)
@@ -43,6 +45,14 @@ export default function HomePage() {
       .then(setHackathons)
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
+
+    const token = localStorage.getItem("seeker_token");
+    if (token) {
+      fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.ok ? r.json() : null)
+        .then((u) => u && setUserId(u.id))
+        .catch(() => {});
+    }
   }, []);
 
   return (
@@ -116,12 +126,14 @@ export default function HomePage() {
                   >
                     Submit Project
                   </a>
-                  <a
-                    href={`/dashboard/${h.id}`}
-                    className="text-sm text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-center"
-                  >
-                    Organizer View
-                  </a>
+                  {userId && h.organizer_id === userId && (
+                    <a
+                      href={`/dashboard/${h.id}`}
+                      className="text-sm text-gray-500 px-4 py-2 rounded-lg hover:bg-gray-100 text-center"
+                    >
+                      Organizer View
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
