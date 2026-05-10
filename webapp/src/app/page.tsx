@@ -23,6 +23,10 @@ interface Hackathon {
   project_count: number;
 }
 
+function submissionsOpen(h: Hackathon): boolean {
+  return h.status === "open" && new Date() < new Date(h.voting_start);
+}
+
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
   open: "bg-green-100 text-green-700",
@@ -113,12 +117,14 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
-                  <a
-                    href={`/projects/submit/${h.id}`}
-                    className="text-sm bg-purple-50 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-100 text-center"
-                  >
-                    Submit Project
-                  </a>
+                  {submissionsOpen(h) && (
+                    <a
+                      href={`/projects/submit/${h.id}`}
+                      className="text-sm bg-purple-50 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-100 text-center"
+                    >
+                      Submit Project
+                    </a>
+                  )}
                   {user && h.organizer_id === user.id && (
                     <a
                       href={`/dashboard/${h.id}`}

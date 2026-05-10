@@ -4,17 +4,31 @@ import { useWallet } from "@solana/wallet-adapter-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
-const STATUS_MESSAGE: Record<string, string> = {
-  draft:     "This hackathon isn't open yet — the organizer hasn't funded the prize escrow.",
-  voting:    "Submissions are closed — this hackathon is in the voting phase.",
-  verifying: "Submissions are closed — the organizer is verifying the winner.",
-  completed: "This hackathon has ended.",
-};
+interface Hackathon {
+  status: string;
+  voting_start: string;
+  voting_end: string;
+  title: string;
+}
+
+function submissionsOpen(h: Hackathon): boolean {
+  return h.status === "open" && new Date() < new Date(h.voting_start);
+}
+
+function closedReason(h: Hackathon): string {
+  if (h.status === "draft") return "This hackathon isn't open yet — the organizer hasn't funded the prize escrow.";
+  if (h.status === "open" && new Date() >= new Date(h.voting_start))
+    return `Submissions closed — the voting window opened ${new Date(h.voting_start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.`;
+  if (h.status === "voting") return "Submissions are closed — this hackathon is in the voting phase.";
+  if (h.status === "verifying") return "Submissions are closed — the organizer is verifying the winner.";
+  if (h.status === "completed") return "This hackathon has ended.";
+  return "This hackathon is not accepting submissions.";
+}
 
 export default function SubmitProjectPage({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey } = useWallet();
-  const [hackathonStatus, setHackathonStatus] = useState<string | null>(null);
+  const [hackathon, setHackathon] = useState<Hackathon | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [form, setForm] = useState({
     name: "",
@@ -31,7 +45,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   useEffect(() => {
     fetch(`${API}/hackathons/${hackathonId}`)
       .then((r) => r.json())
-      .then((h) => setHackathonStatus(h.status))
+      .then(setHackathon)
       .finally(() => setStatusLoading(false));
   }, [hackathonId]);
 
@@ -95,20 +109,27 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
   }
 
-  if (hackathonStatus !== "open") {
+  if (!hackathon || !submissionsOpen(hackathon)) {
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
         <div className="text-5xl mb-4">🔒</div>
         <h2 className="text-2xl font-bold mb-2">Submissions closed</h2>
-        <p className="text-gray-500">{STATUS_MESSAGE[hackathonStatus ?? ""] ?? "This hackathon is not accepting submissions."}</p>
+        <p className="text-gray-500">{hackathon ? closedReason(hackathon) : "Hackathon not found."}</p>
         <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );
   }
 
+  const votingStartsAt = new Date(hackathon.voting_start);
+
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
-      <h1 className="text-3xl font-bold mb-8">Submit Project</h1>
+      <h1 className="text-3xl font-bold mb-2">Submit Project</h1>
+      <p className="text-sm text-gray-500 mb-8">
+        Submissions close{" "}
+        {votingStartsAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+        {" "}when voting begins.
+      </p>
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">{error}</div>

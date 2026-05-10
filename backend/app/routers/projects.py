@@ -1,5 +1,6 @@
 import os
 import uuid as uuid_module
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
 from app.db import get_supabase_admin
@@ -15,13 +16,18 @@ async def submit_project(body: ProjectCreate, request: Request):
     hackathon = db.table("hackathons").select("*").eq("id", str(body.hackathon_id)).single().execute()
     if not hackathon.data:
         raise HTTPException(status_code=404, detail="Hackathon not found")
-    if hackathon.data["status"] not in ("open",):
+    h = hackathon.data
+    if h["status"] not in ("open",):
         raise HTTPException(status_code=400, detail="Hackathon is not open for submissions")
+
+    voting_start = datetime.fromisoformat(h["voting_start"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) >= voting_start:
+        raise HTTPException(status_code=400, detail="Submission window has closed — voting has started")
 
     # Enforce max_projects limit
     existing_projects = db.table("projects").select("id") \
         .eq("hackathon_id", str(body.hackathon_id)).execute()
-    if len(existing_projects.data) >= hackathon.data["max_projects"]:
+    if len(existing_projects.data) >= h["max_projects"]:
         raise HTTPException(status_code=409, detail="Hackathon has reached the maximum number of projects")
 
     # One project per team lead per hackathon
