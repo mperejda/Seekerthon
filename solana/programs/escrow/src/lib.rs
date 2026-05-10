@@ -134,45 +134,6 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn refund<'info>(
-        ctx: Context<'info, Refund<'info>>,
-        hackathon_id: [u8; 16],
-    ) -> Result<()> {
-        require!(
-            ctx.accounts.hackathon_escrow.organizer == ctx.accounts.organizer.key(),
-            EscrowError::NotOrganizer,
-        );
-        require!(
-            Clock::get()?.unix_timestamp < ctx.accounts.hackathon_escrow.voting_start,
-            EscrowError::VotingAlreadyStarted,
-        );
-
-        let amount = ctx.accounts.hackathon_escrow.prize_usdc;
-        let bump = ctx.accounts.hackathon_escrow.bump;
-        let seeds: &[&[u8]] = &[b"hackathon_escrow", hackathon_id.as_ref(), &[bump]];
-        let signer_seeds = &[seeds];
-
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let dest_info = ctx.accounts.organizer_usdc_ata.to_account_info();
-        let authority_info = ctx.accounts.hackathon_escrow.to_account_info();
-        let token_program_key = ctx.accounts.token_program.key();
-
-        token::transfer(
-            CpiContext::new_with_signer(
-                token_program_key,
-                Transfer {
-                    from: vault_info,
-                    to: dest_info,
-                    authority: authority_info,
-                },
-                signer_seeds,
-            ),
-            amount,
-        )?;
-
-        ctx.accounts.hackathon_escrow.status = HackathonEscrowStatus::Refunded;
-        Ok(())
-    }
 }
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
@@ -242,46 +203,12 @@ pub struct ReleasePrize<'info> {
     // Winner USDC ATAs passed in remaining_accounts; validated in instruction body.
 }
 
-#[derive(Accounts)]
-#[instruction(hackathon_id: [u8; 16])]
-pub struct Refund<'info> {
-    #[account(mut)]
-    pub organizer: Signer<'info>,
-
-    pub usdc_mint: Account<'info, Mint>,
-
-    #[account(
-        mut,
-        seeds = [b"hackathon_escrow", hackathon_id.as_ref()],
-        bump = hackathon_escrow.bump,
-    )]
-    pub hackathon_escrow: Account<'info, HackathonEscrow>,
-
-    #[account(
-        mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = hackathon_escrow,
-    )]
-    pub vault: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = organizer,
-    )]
-    pub organizer_usdc_ata: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-}
-
 // ── State ──────────────────────────────────────────────────────────────────────
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum HackathonEscrowStatus {
     Active,
     Released,
-    Refunded,
 }
 
 #[account]
@@ -319,12 +246,10 @@ pub struct PrizeReleased {
 pub enum EscrowError {
     #[msg("Not the organizer")]
     NotOrganizer,
-    #[msg("Prize already released or refunded")]
+    #[msg("Prize already released")]
     AlreadyReleased,
     #[msg("Winner shares exceed 100%")]
     InvalidShares,
-    #[msg("Voting period has already started")]
-    VotingAlreadyStarted,
     #[msg("Prize amount must be > 0")]
     InvalidPrize,
     #[msg("voting_start must be >= 0 and voting_end must be > voting_start")]
