@@ -30,7 +30,6 @@ function encodeBase58(bytes: Uint8Array): string {
 function AuthGate({ children }: { children: ReactNode }) {
   const { publicKey, signMessage, connected } = useWallet();
   const authing = useRef(false);
-  const prevConnected = useRef(false);
   // undefined = auth check in progress, null = confirmed no session, SeekerUser = logged in
   const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
 
@@ -39,12 +38,19 @@ function AuthGate({ children }: { children: ReactNode }) {
     const token = localStorage.getItem("seeker_token");
     if (!token) { setUser(null); return; }
     fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => {
+        if (!r.ok) {
+          // Token expired or invalid — clear it
+          localStorage.removeItem("seeker_token");
+          return null;
+        }
+        return r.json();
+      })
       .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
       .catch(() => setUser(null));
   }, []);
 
-  // Sign challenge when wallet connects and no session exists yet
+  // Sign challenge when wallet connects and no valid session exists
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
     if (localStorage.getItem("seeker_token")) return;
@@ -73,17 +79,6 @@ function AuthGate({ children }: { children: ReactNode }) {
     })();
   }, [connected, publicKey, signMessage]);
 
-  // Clear session on explicit wallet disconnect (connected true→false transition)
-  useEffect(() => {
-    if (connected) {
-      prevConnected.current = true;
-    } else if (prevConnected.current) {
-      prevConnected.current = false;
-      localStorage.removeItem("seeker_token");
-      setUser(null);
-    }
-  }, [connected]);
-
   return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }
 
@@ -92,7 +87,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ConnectionProvider endpoint={RPC_ENDPOINT}>
-      <WalletProvider wallets={wallets}>
+      <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <AuthGate>{children}</AuthGate>
         </WalletModalProvider>
