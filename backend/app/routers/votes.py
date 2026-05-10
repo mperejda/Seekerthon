@@ -39,10 +39,11 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     user_id = request.state.user_id
     wallet = request.state.wallet_address
 
-    # Fast path: use the flag cached at login time.
-    # Fall back to a live mainnet check if the DB says False.
-    user_row = db.table("users").select("is_seeker_verified").eq("id", user_id).maybe_single().execute()
+    # Fast path: use the flags cached at login time.
+    # Fall back to a live mainnet check if the DB says False for Genesis.
+    user_row = db.table("users").select("is_seeker_verified,has_builder_pass").eq("id", user_id).maybe_single().execute()
     is_verified = (user_row.data or {}).get("is_seeker_verified", False)
+    has_builder_pass = (user_row.data or {}).get("has_builder_pass", False)
     if not is_verified:
         try:
             is_verified = await verify_seeker_genesis_holder(wallet)
@@ -69,7 +70,7 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     # Compute and lock vote weight now — not at confirm time
     skr_balance, skr_staked = await get_skr_balance(wallet)
     effective_skr = skr_balance + skr_staked
-    vote_weight = compute_vote_weight(effective_skr)
+    vote_weight = compute_vote_weight(effective_skr, has_builder_pass)
     vote_weight_bps = int(vote_weight * 10000)
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=_VOTE_TTL_MINUTES)
