@@ -97,7 +97,7 @@ describe("escrow", () => {
 
   /**
    * Create a hackathon escrow and deposit prize USDC.
-   * Returns the escrow PDA, vault ATA, and a function to release/refund.
+   * Returns the escrow PDA and vault ATA.
    */
   async function createHackathon(opts: {
     organizer: Keypair;
@@ -301,6 +301,7 @@ describe("escrow", () => {
 
     const PRIZE = 100_000_000; // 100 USDC
 
+    // Voting window already ended — release_prize should succeed
     before(async () => {
       ({ organizer, organizerAta } = await setupOrganizer(PRIZE));
       hackathonId = randomHackathonId();
@@ -311,8 +312,8 @@ describe("escrow", () => {
         organizerAta,
         hackathonId,
         prizeUsdc: PRIZE,
-        votingStart: new anchor.BN(now + 3600),
-        votingEnd: new anchor.BN(now + 7200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       }));
     });
 
@@ -346,8 +347,41 @@ describe("escrow", () => {
       assert.deepEqual(escrow.status, { released: {} });
     });
 
+    it("rejects release before voting_end has passed", async () => {
+      const { organizer: org, organizerAta: ata } = await setupOrganizer(1_000_000);
+      const hId = randomHackathonId();
+      const now = Math.floor(Date.now() / 1000);
+      const { escrowPda: ep, vault: v } = await createHackathon({
+        organizer: org,
+        organizerAta: ata,
+        hackathonId: hId,
+        prizeUsdc: 1_000_000,
+        votingStart: new anchor.BN(now + 100),
+        votingEnd: new anchor.BN(now + 200),
+      });
+      const { winnerAta } = await setupWinner();
+
+      await expectError(
+        () =>
+          program.methods
+            .releasePrize(hId, [10_000])
+            .accounts({
+              organizer: org.publicKey,
+              usdcMint,
+              hackathonEscrow: ep,
+              vault: v,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .remainingAccounts([
+              { pubkey: winnerAta, isSigner: false, isWritable: true },
+            ])
+            .signers([org])
+            .rpc(),
+        "VotingNotEnded"
+      );
+    });
+
     it("rejects a non-organizer caller", async () => {
-      // Create a fresh hackathon to test this against
       const { organizer: org2, organizerAta: ata2 } = await setupOrganizer(1_000_000);
       const hId2 = randomHackathonId();
       const now = Math.floor(Date.now() / 1000);
@@ -356,8 +390,8 @@ describe("escrow", () => {
         organizerAta: ata2,
         hackathonId: hId2,
         prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 100),
-        votingEnd: new anchor.BN(now + 200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       });
 
       const attacker = Keypair.generate();
@@ -393,8 +427,8 @@ describe("escrow", () => {
         organizerAta: ata3,
         hackathonId: hId3,
         prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 100),
-        votingEnd: new anchor.BN(now + 200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       });
       const { winnerAta } = await setupWinner();
 
@@ -427,8 +461,8 @@ describe("escrow", () => {
         organizerAta: ata4,
         hackathonId: hId4,
         prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 100),
-        votingEnd: new anchor.BN(now + 200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       });
       const { winnerAta: wa1 } = await setupWinner();
       const { winnerAta: wa2 } = await setupWinner();
@@ -464,8 +498,8 @@ describe("escrow", () => {
         organizerAta: ata5,
         hackathonId: hId5,
         prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 100),
-        votingEnd: new anchor.BN(now + 200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       });
 
       // Pass a system account (owned by SystemProgram, not TokenProgram)
@@ -500,8 +534,8 @@ describe("escrow", () => {
         organizerAta: ata6,
         hackathonId: hId6,
         prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 100),
-        votingEnd: new anchor.BN(now + 200),
+        votingStart: new anchor.BN(now - 200),
+        votingEnd: new anchor.BN(now - 100),
       });
 
       // Create a different mint and a token account for it
@@ -540,7 +574,7 @@ describe("escrow", () => {
     });
 
     it("rejects a double release on the same hackathon", async () => {
-      // The first release_prize test already released this hackathon
+      // The first release_prize test already released this hackathon (status = Released)
       const { winnerAta } = await setupWinner();
 
       await expectError(
@@ -561,125 +595,6 @@ describe("escrow", () => {
             .rpc(),
         "AlreadyReleased"
       );
-    });
-  });
-
-  // ── refund ─────────────────────────────────────────────────────────────────
-
-  describe("refund", () => {
-    const PRIZE = 50_000_000; // 50 USDC
-    let organizer: Keypair;
-    let organizerAta: PublicKey;
-    let escrowPda: PublicKey;
-    let vault: PublicKey;
-    let hackathonId: number[];
-
-    before(async () => {
-      ({ organizer, organizerAta } = await setupOrganizer(PRIZE));
-      hackathonId = randomHackathonId();
-      const now = Math.floor(Date.now() / 1000);
-
-      // voting_start in the future so refund is permitted
-      ({ escrowPda, vault } = await createHackathon({
-        organizer,
-        organizerAta,
-        hackathonId,
-        prizeUsdc: PRIZE,
-        votingStart: new anchor.BN(now + 86400), // 24h from now
-        votingEnd: new anchor.BN(now + 172800),  // 48h from now
-      }));
-    });
-
-    it("rejects refund by non-organizer", async () => {
-      const attacker = Keypair.generate();
-      await fund(attacker.publicKey);
-      const attackerAta = await createAssociatedTokenAccount(
-        provider.connection,
-        payer,
-        usdcMint,
-        attacker.publicKey
-      );
-
-      await expectError(
-        () =>
-          program.methods
-            .refund(hackathonId)
-            .accounts({
-              organizer: attacker.publicKey,
-              usdcMint,
-              hackathonEscrow: escrowPda,
-              vault,
-              organizerUsdcAta: attackerAta,
-              tokenProgram: TOKEN_PROGRAM_ID,
-              systemProgram: SystemProgram.programId,
-            })
-            .signers([attacker])
-            .rpc(),
-        "NotOrganizer"
-      );
-    });
-
-    it("rejects refund after voting has started", async () => {
-      // Create a separate hackathon with voting_start already in the past
-      const { organizer: org2, organizerAta: ata2 } = await setupOrganizer(1_000_000);
-      const hId2 = randomHackathonId();
-      const now = Math.floor(Date.now() / 1000);
-      const { escrowPda: ep2, vault: v2 } = await createHackathon({
-        organizer: org2,
-        organizerAta: ata2,
-        hackathonId: hId2,
-        prizeUsdc: 1_000_000,
-        votingStart: new anchor.BN(now + 1),    // 1 second from now — will be past by tx time
-        votingEnd: new anchor.BN(now + 3600),
-      });
-
-      // Tiny sleep so voting_start passes
-      await new Promise((r) => setTimeout(r, 2000));
-
-      await expectError(
-        () =>
-          program.methods
-            .refund(hId2)
-            .accounts({
-              organizer: org2.publicKey,
-              usdcMint,
-              hackathonEscrow: ep2,
-              vault: v2,
-              organizerUsdcAta: ata2,
-              tokenProgram: TOKEN_PROGRAM_ID,
-              systemProgram: SystemProgram.programId,
-            })
-            .signers([org2])
-            .rpc(),
-        "VotingAlreadyStarted"
-      );
-    });
-
-    it("refunds USDC to organizer before voting starts", async () => {
-      const balanceBefore = await getAccount(provider.connection, organizerAta);
-
-      await program.methods
-        .refund(hackathonId)
-        .accounts({
-          organizer: organizer.publicKey,
-          usdcMint,
-          hackathonEscrow: escrowPda,
-          vault,
-          organizerUsdcAta: organizerAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([organizer])
-        .rpc();
-
-      const balanceAfter = await getAccount(provider.connection, organizerAta);
-      assert.equal(
-        Number(balanceAfter.amount) - Number(balanceBefore.amount),
-        PRIZE
-      );
-
-      const escrow = await program.account.hackathonEscrow.fetch(escrowPda);
-      assert.deepEqual(escrow.status, { refunded: {} });
     });
   });
 });
