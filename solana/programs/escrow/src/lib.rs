@@ -68,6 +68,10 @@ pub mod escrow {
             EscrowError::AlreadyReleased,
         );
         require!(
+            Clock::get()?.unix_timestamp >= ctx.accounts.hackathon_escrow.voting_end,
+            EscrowError::VotingNotEnded,
+        );
+        require!(
             ctx.remaining_accounts.len() == winner_share_bps.len(),
             EscrowError::RecipientCountMismatch,
         );
@@ -333,4 +337,6 @@ pub enum EscrowError {
     InvalidRecipientMint,
     #[msg("Number of recipients must match number of share entries")]
     RecipientCountMismatch,
+    #[msg("Voting period has not ended yet")]
+    VotingNotEnded,
 }

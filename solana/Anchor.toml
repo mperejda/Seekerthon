@@ -6,11 +6,9 @@ seeds = true
 skip-lint = false
 
 [programs.localnet]
-voting = "DdNeeXHP6QUyNMq8ZGAQ7VsSAcEQ7FCCbXbX9DrFFS8t"
 escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
 
 [programs.devnet]
-voting = "DdNeeXHP6QUyNMq8ZGAQ7VsSAcEQ7FCCbXbX9DrFFS8t"
 escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
 
 [registry]
@@ -25,6 +23,5 @@ test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [workspace]
 members = [
-    "programs/voting",
     "programs/escrow",
 ]
