@@ -1,7 +1,7 @@
 "use client";
 import { use, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useUser } from "@/app/providers";
+import { useUser } from "../../../providers";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
