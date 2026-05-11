@@ -6,10 +6,10 @@ seeds = true
 skip-lint = false
 
 [programs.localnet]
-escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
+escrow = "AuSvDxVH1ovWbGLiSFtaAbkVEy5ophRV9Z3RHmd3smgd"
 
 [programs.devnet]
-escrow = "GCiJViWButEvTMgRb1HMfJLDYU3ceKyNHvjWQXMUEGxs"
+escrow = "AuSvDxVH1ovWbGLiSFtaAbkVEy5ophRV9Z3RHmd3smgd"
 
 [registry]
 url = "https://api.anchor-lang.com"
