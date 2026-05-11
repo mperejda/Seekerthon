@@ -151,6 +151,27 @@ class ProjectResponse(BaseModel):
         from_attributes = True
 
 
+# ── Assets ─────────────────────────────────────────────────────────────────
+
+class AssetUploadUrlRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class AssetUploadUrlResponse(BaseModel):
+    upload_url: str
+    public_url: str
+    key: str
+
+
+class AssetConfirmRequest(BaseModel):
+    key: str
+
+
+class AssetConfirmResponse(BaseModel):
+    public_url: str
+
+
 # ── Votes ──────────────────────────────────────────────────────────────────
 
 class VotePrepareRequest(BaseModel):
