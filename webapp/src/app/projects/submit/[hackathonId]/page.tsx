@@ -84,29 +84,12 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         for (let i = 0; i < fileList.length; i++) {
           const file = fileList[i];
           setUploadStatus(`Uploading file ${i + 1} of ${fileList.length}…`);
-
-          // 1. Get presigned R2 URL
-          const urlRes = await fetch(`${API}/projects/${project.id}/assets/upload-url`, {
+          const fd = new FormData();
+          fd.append("file", file);
+          await fetch(`${API}/projects/${project.id}/assets`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream" }),
-          });
-          if (!urlRes.ok) throw new Error("Failed to get upload URL");
-          const { upload_url, key } = await urlRes.json();
-
-          // 2. Upload directly to R2 (no auth header — presigned URL carries credentials)
-          const putRes = await fetch(upload_url, {
-            method: "PUT",
-            headers: { "Content-Type": file.type || "application/octet-stream" },
-            body: file,
-          });
-          if (!putRes.ok) throw new Error(`Upload failed for ${file.name}`);
-
-          // 3. Confirm so the backend records the public URL
-          await fetch(`${API}/projects/${project.id}/assets/confirm`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ key }),
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
           });
         }
       }

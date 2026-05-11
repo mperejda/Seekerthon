@@ -1,15 +1,10 @@
 import os
 import uuid as uuid_module
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
 from app.db import get_supabase_admin
-from app.models.schemas import (
-    ProjectCreate, ProjectResponse,
-    AssetUploadUrlRequest, AssetUploadUrlResponse,
-    AssetConfirmRequest, AssetConfirmResponse,
-)
-from app.services.r2_service import generate_upload_url, key_to_public_url
+from app.models.schemas import ProjectCreate, ProjectResponse
 
 router = APIRouter()
 
@@ -58,35 +53,26 @@ async def submit_project(body: ProjectCreate, request: Request):
     return ProjectResponse(**result.data[0])
 
 
-def _get_project_or_403(db, project_id: str, user_id: str):
+@router.post("/{project_id}/assets")
+async def upload_asset(project_id: str, file: UploadFile = File(...), request: Request = None):
+    """Upload demo video or screenshot to Supabase Storage."""
+    db = get_supabase_admin()
     project = db.table("projects").select("*").eq("id", project_id).single().execute()
     if not project.data:
         raise HTTPException(status_code=404, detail="Project not found")
-    if str(project.data["team_lead_id"]) != user_id:
+    if str(project.data["team_lead_id"]) != request.state.user_id:
         raise HTTPException(status_code=403, detail="Not the project owner")
-    return project.data
 
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    safe_name = f"{uuid_module.uuid4()}{ext}"
+    path = f"{project_id}/{safe_name}"
 
-@router.post("/{project_id}/assets/upload-url", response_model=AssetUploadUrlResponse)
-async def get_asset_upload_url(project_id: str, body: AssetUploadUrlRequest, request: Request):
-    """Step 1: get a presigned R2 PUT URL. The client uploads the file directly to R2."""
-    db = get_supabase_admin()
-    _get_project_or_403(db, project_id, request.state.user_id)
+    content = await file.read()
+    db.storage.from_("project-assets").upload(path, content, {"content-type": file.content_type})
 
-    upload_url, public_url, key = generate_upload_url(project_id, body.filename, body.content_type)
-    return AssetUploadUrlResponse(upload_url=upload_url, public_url=public_url, key=key)
-
-
-@router.post("/{project_id}/assets/confirm", response_model=AssetConfirmResponse)
-async def confirm_asset_upload(project_id: str, body: AssetConfirmRequest, request: Request):
-    """Step 2: called after a successful R2 PUT. Saves the public URL to the project."""
-    db = get_supabase_admin()
-    project = _get_project_or_403(db, project_id, request.state.user_id)
-
-    public_url = key_to_public_url(body.key)
-    asset_urls = project.get("storage_asset_ids", []) + [public_url]
-    db.table("projects").update({"storage_asset_ids": asset_urls}).eq("id", project_id).execute()
-    return AssetConfirmResponse(public_url=public_url)
+    asset_ids = project.data.get("storage_asset_ids", []) + [path]
+    db.table("projects").update({"storage_asset_ids": asset_ids}).eq("id", project_id).execute()
+    return {"path": path}
 
 
 @router.get("/hackathon/{hackathon_id}", response_model=List[ProjectResponse])
