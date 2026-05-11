@@ -31,7 +31,8 @@ SKR_MINT = _settings.skr_token_mint
 GENESIS_COLLECTION = _settings.seeker_genesis_collection
 VOTING_PROGRAM = _settings.voting_program_id
 ESCROW_PROGRAM = _settings.escrow_program_id
-USDC_MINT = _settings.usdc_mint
+USDC_MINT = _settings.usdc_mint               # mainnet — Builder Pass flow
+ESCROW_USDC_MINT = _settings.escrow_usdc_mint  # devnet or mainnet — escrow flow
 USDC_DECIMALS = 6
 MAX_MULTIPLIER = _settings.max_vote_multiplier
 SKR_PER_STEP = _settings.skr_per_multiplier_step
@@ -942,7 +943,7 @@ async def build_create_escrow_transaction(
     Instruction: create_hackathon(hackathon_id: [u8;16], prize_usdc: u64, voting_start: i64, voting_end: i64)
     """
     organizer = Pubkey.from_string(organizer_wallet)
-    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
+    usdc_mint_pk = Pubkey.from_string(ESCROW_USDC_MINT)
     escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
 
     hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
@@ -1019,7 +1020,7 @@ async def build_release_transaction(
     organizer = Pubkey.from_string(organizer_wallet)
     escrow = Pubkey.from_string(escrow_pda)
     winner = Pubkey.from_string(winner_wallet)
-    usdc_mint = Pubkey.from_string(USDC_MINT)
+    usdc_mint = Pubkey.from_string(ESCROW_USDC_MINT)
     escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
 
     # Vault: ATA owned by the escrow PDA (holds the USDC prize pool)

@@ -25,10 +25,14 @@ class Settings(BaseSettings):
     seeker_genesis_collection: str
     skr_token_mint: str
 
-    # USDC mint address
-    # Devnet:  4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+    # USDC mint used by the Builder Pass purchase flow (mainnet)
     # Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
     usdc_mint: str
+
+    # USDC mint used by the escrow program (devnet for testing, mainnet for production)
+    # Devnet:  4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+    # Mainnet: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    escrow_usdc_mint: str = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 
     # Vote weight config
     max_vote_multiplier: float = 5.0
