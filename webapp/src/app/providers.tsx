@@ -11,6 +11,7 @@ const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.sola
 export interface SeekerUser {
   id: string;
   wallet_address: string;
+  has_builder_pass: boolean;
 }
 
 // undefined = auth check in progress, null = confirmed not logged in, SeekerUser = logged in
@@ -46,7 +47,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         }
         return r.json();
       })
-      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
+      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address, has_builder_pass: u.has_builder_pass ?? false } : null))
       .catch(() => setUser(null));
   }, []);
 
@@ -69,7 +70,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         });
         const data = await loginRes.json();
         localStorage.setItem("seeker_token", data.access_token);
-        setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
+        setUser({ id: data.user.id, wallet_address: data.user.wallet_address, has_builder_pass: data.user.has_builder_pass ?? false });
       } catch (e) {
         console.error("Wallet auth failed", e);
         setUser(null);

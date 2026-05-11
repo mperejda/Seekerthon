@@ -24,6 +24,10 @@ async def submit_project(body: ProjectCreate, request: Request):
     if datetime.now(timezone.utc) >= voting_start:
         raise HTTPException(status_code=400, detail="Submission window has closed — voting has started")
 
+    user_row = db.table("users").select("has_builder_pass").eq("id", request.state.user_id).maybe_single().execute()
+    if not (user_row.data or {}).get("has_builder_pass", False):
+        raise HTTPException(status_code=403, detail="Project submissions require an Alpine Labs Builder Pass")
+
     # Enforce max_projects limit
     existing_projects = db.table("projects").select("id") \
         .eq("hackathon_id", str(body.hackathon_id)).execute()

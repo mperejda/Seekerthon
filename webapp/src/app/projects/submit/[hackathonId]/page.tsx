@@ -1,6 +1,7 @@
 "use client";
 import { use, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useUser } from "@/app/providers";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -28,6 +29,7 @@ function closedReason(h: Hackathon): string {
 export default function SubmitProjectPage({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey } = useWallet();
+  const user = useUser();
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [form, setForm] = useState({
@@ -107,6 +109,27 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
 
   if (statusLoading) {
     return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
+  }
+
+  if (user === undefined) {
+    return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
+  }
+
+  if (!user || !user.has_builder_pass) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="text-5xl mb-4">🏔️</div>
+        <h2 className="text-2xl font-bold mb-2">Builder Pass required</h2>
+        <p className="text-gray-500 mb-2">
+          Project submissions are gated to{" "}
+          <span className="font-medium text-gray-700">Alpine Labs Builder Pass</span> holders.
+        </p>
+        {!user && (
+          <p className="text-sm text-gray-400 mb-6">Connect your wallet to check eligibility.</p>
+        )}
+        <a href="/" className="inline-block mt-4 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+      </div>
+    );
   }
 
   if (!hackathon || !submissionsOpen(hackathon)) {
