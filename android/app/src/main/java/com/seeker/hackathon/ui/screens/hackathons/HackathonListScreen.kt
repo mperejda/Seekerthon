@@ -80,7 +80,14 @@ fun HackathonListScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (state.hackathons.isEmpty()) {
+                    item {
+                        HackathonListTabs(
+                            selected = state.selectedList,
+                            onSelected = viewModel::selectList,
+                        )
+                    }
+
+                    if (state.visibleHackathons.isEmpty()) {
                         item {
                             Box(
                                 Modifier
@@ -98,13 +105,23 @@ fun HackathonListScreen(
                                         modifier = Modifier.size(48.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    Text("No hackathons yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        if (state.selectedList == HackathonListFilter.Past)
+                                            "No completed hackathons yet"
+                                        else
+                                            "No hackathons are voting yet",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
                     } else {
-                        items(state.hackathons) { hackathon ->
-                            HackathonCard(hackathon = hackathon, onClick = { onHackathonClick(hackathon.id) })
+                        items(state.visibleHackathons) { hackathon ->
+                            HackathonCard(
+                                hackathon = hackathon,
+                                selectedList = state.selectedList,
+                                onClick = { onHackathonClick(hackathon.id) },
+                            )
                         }
                     }
 
@@ -205,7 +222,34 @@ private fun BuilderPassCard(
 }
 
 @Composable
-private fun HackathonCard(hackathon: Hackathon, onClick: () -> Unit) {
+private fun HackathonListTabs(
+    selected: HackathonListFilter,
+    onSelected: (HackathonListFilter) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        SegmentedButton(
+            selected = selected == HackathonListFilter.Active,
+            onClick = { onSelected(HackathonListFilter.Active) },
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+        ) {
+            Text("Voting")
+        }
+        SegmentedButton(
+            selected = selected == HackathonListFilter.Past,
+            onClick = { onSelected(HackathonListFilter.Past) },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+        ) {
+            Text("Past")
+        }
+    }
+}
+
+@Composable
+private fun HackathonCard(
+    hackathon: Hackathon,
+    selectedList: HackathonListFilter,
+    onClick: () -> Unit,
+) {
     val formatter = DateTimeFormatter.ofPattern("MMM d").withZone(ZoneId.systemDefault())
 
     Card(
@@ -221,7 +265,7 @@ private fun HackathonCard(hackathon: Hackathon, onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(hackathon.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                StatusChip(hackathon.status)
+                StatusChip(selectedList = selectedList)
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -253,12 +297,12 @@ private fun HackathonCard(hackathon: Hackathon, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatusChip(status: String) {
-    val (color, label) = when (status) {
-        "open" -> Pair(MaterialTheme.colorScheme.primaryContainer, "Open")
-        "voting" -> Pair(MaterialTheme.colorScheme.tertiaryContainer, "Voting")
-        "completed" -> Pair(MaterialTheme.colorScheme.secondaryContainer, "Done")
-        else -> Pair(MaterialTheme.colorScheme.surfaceVariant, status.capitalize())
+private fun StatusChip(selectedList: HackathonListFilter) {
+    val (color, label) = when {
+        selectedList == HackathonListFilter.Past ->
+            Pair(MaterialTheme.colorScheme.secondaryContainer, "Complete")
+        else ->
+            Pair(MaterialTheme.colorScheme.tertiaryContainer, "Voting in progress")
     }
     Surface(shape = RoundedCornerShape(20.dp), color = color) {
         Text(label, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))

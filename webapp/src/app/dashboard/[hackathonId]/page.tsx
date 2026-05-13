@@ -32,6 +32,38 @@ interface Project {
   status: string;
 }
 
+function displayHackathonStatus(hackathon: Hackathon | null): string | null {
+  if (!hackathon) return null;
+  const now = new Date();
+  const votingStart = new Date(hackathon.voting_start);
+  const votingEnd = new Date(hackathon.voting_end);
+
+  if (hackathon.status === "completed") return "completed";
+  if (hackathon.status === "draft") return "draft";
+  if (now < votingStart) return "accepting_submissions";
+  if (now < votingEnd) return "voting";
+  if (hackathon.status === "verifying" || hackathon.status === "open" || hackathon.status === "voting") return "verifying";
+  return hackathon.status;
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  accepting_submissions: "Accepting submissions",
+  open: "Open",
+  voting: "Voting in progress",
+  verifying: "Verification in progress",
+  completed: "Complete",
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  draft: "bg-gray-100 text-gray-600",
+  accepting_submissions: "bg-green-100 text-green-700",
+  open: "bg-green-100 text-green-700",
+  voting: "bg-blue-100 text-blue-700",
+  verifying: "bg-yellow-100 text-yellow-700",
+  completed: "bg-purple-100 text-purple-700",
+};
+
 export default function OrganizerDashboard({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey, sendTransaction } = useWallet();
@@ -40,9 +72,10 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
   const user = useUser();
   const [projects, setProjects] = useState<Project[]>([]);
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
-  const hackathonStatus = hackathon?.status ?? null;
+  const hackathonStatus = displayHackathonStatus(hackathon);
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [refunding, setRefunding] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,7 +184,9 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
         }
       );
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+      const updatedHackathon = await confirmRes.json();
 
+      setHackathon(updatedHackathon);
       setProjects((prev) =>
         prev.map((p) => (p.id === projectId ? { ...p, status: "winner" } : p))
       );
@@ -162,7 +197,57 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
     }
   };
 
+  const refundOrganizer = async () => {
+    setRefunding(true);
+    setError(null);
+    const token = localStorage.getItem("seeker_token");
+
+    try {
+      const prepRes = await fetch(
+        `${API}/hackathons/${hackathonId}/verify/refund/release-tx`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      let txSignature: string | undefined;
+
+      if (prepRes.ok) {
+        const { transaction_b64 } = await prepRes.json();
+        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+        const tx = Transaction.from(txBytes);
+
+        txSignature = await sendTransaction(tx, connection, {
+          skipPreflight: false,
+        });
+
+        await connection.confirmTransaction(txSignature, "confirmed");
+      } else if (prepRes.status !== 400) {
+        throw new Error((await prepRes.json()).detail);
+      }
+
+      const confirmRes = await fetch(
+        `${API}/hackathons/${hackathonId}/verify/refund`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ tx_signature: txSignature ?? null }),
+        }
+      );
+      if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+      const updatedHackathon = await confirmRes.json();
+
+      setHackathon(updatedHackathon);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRefunding(false);
+    }
+  };
+
   const votingEnded = hackathon ? new Date() >= new Date(hackathon.voting_end) : false;
+  const storedHackathonStatus = hackathon?.status ?? null;
   const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
 
   return (
@@ -180,9 +265,15 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       <div className="flex items-center gap-3 mb-8">
         <p className="text-gray-500 text-sm">Review submissions and release prizes to winners</p>
         {hackathonStatus && (
-          <span className="text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-600 capitalize">{hackathonStatus}</span>
+          <span
+            className={`text-xs font-medium px-2 py-1 rounded-full ${
+              STATUS_BADGE[hackathonStatus] ?? STATUS_BADGE.draft
+            }`}
+          >
+            {STATUS_LABEL[hackathonStatus] ?? hackathonStatus}
+          </span>
         )}
-        {hackathonStatus === "draft" && (
+        {storedHackathonStatus === "draft" && (
           <a
             href={`/hackathons/${hackathonId}/fund`}
             className="text-sm bg-purple-600 text-white px-4 py-1.5 rounded-lg hover:bg-purple-700"
@@ -190,7 +281,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
             Fund Escrow to Open
           </a>
         )}
-        {hackathonStatus === "open" && (
+        {storedHackathonStatus === "open" && hackathonStatus === "accepting_submissions" && (
           <button
             onClick={() => setStatus("voting")}
             disabled={statusUpdating}
@@ -206,23 +297,26 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
           <strong>Voting in progress.</strong> Verify &amp; Release will become available once the voting period ends.
         </div>
       )}
-      {hackathonStatus === "voting" && votingEnded && (
+      {hackathonStatus === "accepting_submissions" && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
-          <strong>Voting has ended.</strong> Review the leaderboard below and click <em>Verify &amp; Release Prize</em> on the winning project.
+          <strong>Accepting submissions.</strong> Builders can submit projects until voting starts.
         </div>
       )}
       {hackathonStatus === "verifying" && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
-          <strong>Waiting on verification.</strong> Sign the release transaction to send the prize to the winner.
+          <strong>Verification in progress.</strong>{" "}
+          {sorted.length === 0
+            ? "No projects were submitted. Refund the prize pool to the organizer wallet."
+            : <>Review the leaderboard below and click <em>Verify &amp; Release Prize</em> on the winning project.</>}
         </div>
       )}
       {hackathonStatus === "completed" && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
-          <strong>Hackathon complete.</strong> The prize has been released to the winner.
+          <strong>Hackathon complete.</strong> The prize pool has been released.
         </div>
       )}
 
-      {!publicKey && hackathonStatus === "voting" && (
+      {!publicKey && (hackathonStatus === "voting" || hackathonStatus === "verifying") && (
         <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
           Connect your organizer wallet above to sign the prize release transaction.
         </div>
@@ -237,12 +331,16 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       ) : sorted.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 mb-4">No projects submitted yet.</p>
-          <a
-            href={`/projects/submit/${hackathonId}`}
-            className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700"
-          >
-            Submit the first project
-          </a>
+          {hackathonStatus === "verifying" && (
+            <button
+              onClick={refundOrganizer}
+              disabled={refunding || !publicKey}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              title={!publicKey ? "Connect your wallet first" : undefined}
+            >
+              {refunding ? "Refunding..." : "Refund Prize to Organizer"}
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

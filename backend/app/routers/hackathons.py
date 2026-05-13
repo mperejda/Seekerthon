@@ -20,6 +20,17 @@ def _parse_dt(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def _voting_has_ended(hackathon: dict) -> bool:
+    voting_end = _parse_dt(hackathon["voting_end"])
+    now = datetime.now(voting_end.tzinfo) if voting_end.tzinfo else datetime.now()
+    return now >= voting_end
+
+
+def _project_count(db, hackathon_id: str) -> int:
+    result = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
+    return result.count or 0
+
+
 @router.post("/", response_model=HackathonResponse)
 async def create_hackathon(body: HackathonCreate, request: Request):
     """Organizer creates a hackathon. Escrow PDA set after on-chain tx."""
@@ -138,6 +149,84 @@ async def get_leaderboard(hackathon_id: str):
     return entries
 
 
+@router.get("/{hackathon_id}/verify/refund/release-tx", response_model=ReleaseTxResponse)
+@router.get("/{hackathon_id}/refund-tx", response_model=ReleaseTxResponse)
+async def prepare_refund(hackathon_id: str, request: Request):
+    """
+    Build an unsigned release_prize transaction that refunds the organizer.
+    This is only allowed after voting has ended and no projects were submitted.
+    """
+    db = get_supabase_admin()
+    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
+
+    if hackathon["status"] in ("draft", "completed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot refund when hackathon status is '{hackathon['status']}'",
+        )
+    if not _voting_has_ended(hackathon):
+        raise HTTPException(status_code=400, detail="Cannot refund before voting has ended")
+    if _project_count(db, hackathon_id) > 0:
+        raise HTTPException(status_code=400, detail="Cannot refund because projects were submitted")
+    if not hackathon.get("escrow_pubkey"):
+        raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
+
+    tx_b64 = await build_release_transaction(
+        organizer_wallet=request.state.wallet_address,
+        hackathon_id_str=hackathon_id,
+        escrow_pda=hackathon["escrow_pubkey"],
+        winner_wallet=request.state.wallet_address,
+    )
+
+    return ReleaseTxResponse(
+        transaction_b64=tx_b64,
+        winner_wallet=request.state.wallet_address,
+        prize_lamports=hackathon["prize_pool_usdc"],
+    )
+
+
+@router.post("/{hackathon_id}/verify/refund", response_model=HackathonResponse)
+@router.post("/{hackathon_id}/refund", response_model=HackathonResponse)
+async def verify_and_refund(
+    hackathon_id: str,
+    body: VerifyReleaseRequest,
+    request: Request,
+):
+    """
+    Organizer confirms a no-submissions refund after signing the release transaction.
+    The escrow program uses the same release_prize instruction, with the organizer as recipient.
+    """
+    db = get_supabase_admin()
+    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
+
+    if hackathon["status"] in ("draft", "completed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot refund when hackathon status is '{hackathon['status']}'",
+        )
+    if not _voting_has_ended(hackathon):
+        raise HTTPException(status_code=400, detail="Cannot refund before voting has ended")
+    if _project_count(db, hackathon_id) > 0:
+        raise HTTPException(status_code=400, detail="Cannot refund because projects were submitted")
+
+    if hackathon.get("escrow_pubkey"):
+        if not body.tx_signature:
+            raise HTTPException(
+                status_code=400,
+                detail="tx_signature required — sign the refund transaction first",
+            )
+        verified = await verify_release_on_chain(
+            body.tx_signature,
+            hackathon["escrow_pubkey"],
+            request.state.wallet_address,
+        )
+        if not verified:
+            raise HTTPException(status_code=400, detail="Refund transaction not confirmed on-chain")
+
+    result = db.table("hackathons").update({"status": "completed"}).eq("id", hackathon_id).execute()
+    return HackathonResponse(**result.data[0])
+
+
 @router.get("/{hackathon_id}/verify/{project_id}/release-tx", response_model=ReleaseTxResponse)
 async def prepare_release(hackathon_id: str, project_id: str, request: Request):
     """
@@ -174,7 +263,7 @@ async def prepare_release(hackathon_id: str, project_id: str, request: Request):
     return ReleaseTxResponse(
         transaction_b64=tx_b64,
         winner_wallet=winner_wallet,
-        prize_lamports=hackathon["prize_pool_lamports"],
+        prize_lamports=hackathon["prize_pool_usdc"],
     )
 
 

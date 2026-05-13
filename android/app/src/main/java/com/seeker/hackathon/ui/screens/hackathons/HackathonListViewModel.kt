@@ -13,10 +13,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.Instant
 import javax.inject.Inject
 
 data class HackathonListUiState(
     val hackathons: List<Hackathon> = emptyList(),
+    val visibleHackathons: List<Hackathon> = emptyList(),
+    val selectedList: HackathonListFilter = HackathonListFilter.Active,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasBuilderPass: Boolean = false,
@@ -24,6 +27,11 @@ data class HackathonListUiState(
     val mintSuccess: Boolean = false,
     val error: String? = null,
 )
+
+enum class HackathonListFilter {
+    Active,
+    Past,
+}
 
 @HiltViewModel
 class HackathonListViewModel @Inject constructor(
@@ -53,6 +61,8 @@ class HackathonListViewModel @Inject constructor(
                 val me = try { api.getMe() } catch (_: Exception) { null }
                 _state.value = HackathonListUiState(
                     hackathons = hackathons,
+                    visibleHackathons = hackathons.filterFor(_state.value.selectedList),
+                    selectedList = _state.value.selectedList,
                     hasBuilderPass = me?.has_builder_pass ?: false,
                 )
             } catch (e: Exception) {
@@ -69,6 +79,7 @@ class HackathonListViewModel @Inject constructor(
                 val me = try { api.getMe() } catch (_: Exception) { null }
                 _state.value = _state.value.copy(
                     hackathons = hackathons,
+                    visibleHackathons = hackathons.filterFor(_state.value.selectedList),
                     hasBuilderPass = me?.has_builder_pass ?: _state.value.hasBuilderPass,
                     isRefreshing = false,
                 )
@@ -76,6 +87,13 @@ class HackathonListViewModel @Inject constructor(
                 _state.value = _state.value.copy(isRefreshing = false, error = e.message)
             }
         }
+    }
+
+    fun selectList(filter: HackathonListFilter) {
+        _state.value = _state.value.copy(
+            selectedList = filter,
+            visibleHackathons = _state.value.hackathons.filterFor(filter),
+        )
     }
 
     fun mintBuilderPass(sender: ActivityResultSender) {
@@ -97,4 +115,21 @@ class HackathonListViewModel @Inject constructor(
 
     fun dismissError() { _state.value = _state.value.copy(error = null) }
     fun dismissMintSuccess() { _state.value = _state.value.copy(mintSuccess = false) }
+
+    private fun List<Hackathon>.filterFor(filter: HackathonListFilter): List<Hackathon> {
+        return when (filter) {
+            HackathonListFilter.Active -> filterForActiveVoting()
+            HackathonListFilter.Past -> filter { it.status == "completed" }
+        }
+    }
+
+    private fun List<Hackathon>.filterForActiveVoting(): List<Hackathon> {
+        val now = Instant.now()
+        return filter { hackathon ->
+            now >= hackathon.votingStart &&
+                now < hackathon.votingEnd &&
+                hackathon.status != "draft" &&
+                hackathon.status != "completed"
+        }
+    }
 }

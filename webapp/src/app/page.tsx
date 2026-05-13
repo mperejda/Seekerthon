@@ -27,12 +27,35 @@ function submissionsOpen(h: Hackathon): boolean {
   return h.status === "open" && new Date() < new Date(h.voting_start);
 }
 
+function displayStatus(h: Hackathon): string {
+  const now = new Date();
+  const votingStart = new Date(h.voting_start);
+  const votingEnd = new Date(h.voting_end);
+
+  if (h.status === "completed") return "completed";
+  if (h.status === "draft") return "draft";
+  if (now < votingStart) return "accepting_submissions";
+  if (now < votingEnd) return "voting";
+  if (h.status === "verifying" || h.status === "open" || h.status === "voting") return "verifying";
+  return h.status;
+}
+
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
+  accepting_submissions: "bg-green-100 text-green-700",
   open: "bg-green-100 text-green-700",
   voting: "bg-blue-100 text-blue-700",
   verifying: "bg-yellow-100 text-yellow-700",
   completed: "bg-purple-100 text-purple-700",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  accepting_submissions: "Accepting submissions",
+  open: "Open",
+  voting: "Voting in progress",
+  verifying: "Verification in progress",
+  completed: "Complete",
 };
 
 export default function HomePage() {
@@ -84,11 +107,14 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {hackathons.map((h) => (
-            <div
-              key={h.id}
-              className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-sm transition-shadow"
-            >
+          {hackathons.map((h) => {
+            const status = displayStatus(h);
+
+            return (
+              <div
+                key={h.id}
+                className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-sm transition-shadow"
+              >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
@@ -96,11 +122,11 @@ export default function HomePage() {
                       {h.title}
                     </h2>
                     <span
-                      className={`text-xs font-medium px-2 py-1 rounded-full capitalize ${
-                        STATUS_BADGE[h.status] ?? STATUS_BADGE.draft
+                      className={`text-xs font-medium px-2 py-1 rounded-full ${
+                        STATUS_BADGE[status] ?? STATUS_BADGE.draft
                       }`}
                     >
-                      {h.status}
+                      {STATUS_LABEL[status] ?? status}
                     </span>
                   </div>
                   <p className="text-gray-600 text-sm mb-3">{h.description}</p>
@@ -136,7 +162,8 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
