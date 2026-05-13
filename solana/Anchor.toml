@@ -2,26 +2,23 @@
 anchor_version = "1.0.2"
 
 [features]
-seeds = true
+resolution = true
 skip-lint = false
 
-[programs.localnet]
-escrow = "AuSvDxVH1ovWbGLiSFtaAbkVEy5ophRV9Z3RHmd3smgd"
-
 [programs.devnet]
-escrow = "AuSvDxVH1ovWbGLiSFtaAbkVEy5ophRV9Z3RHmd3smgd"
+escrow = "3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ"
 
-[registry]
-url = "https://api.anchor-lang.com"
+[programs.localnet]
+escrow = "3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ"
 
 [provider]
-cluster = "Localnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
+
+[workspace]
+members = ["programs/escrow"]
 
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
-[workspace]
-members = [
-    "programs/escrow",
-]
+[hooks]

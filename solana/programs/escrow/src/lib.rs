@@ -4,7 +4,7 @@ use anchor_spl::{
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
 
-declare_id!("AuSvDxVH1ovWbGLiSFtaAbkVEy5ophRV9Z3RHmd3smgd");
+declare_id!("3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ");
 
 const MAX_RECIPIENTS: usize = 10;
 
