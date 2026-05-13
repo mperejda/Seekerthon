@@ -120,18 +120,11 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
   }
 
-  if (!user || !user.has_builder_pass) {
+  if (!user) {
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
-        <div className="text-5xl mb-4">🏔️</div>
-        <h2 className="text-2xl font-bold mb-2">Builder Pass required</h2>
-        <p className="text-gray-500 mb-2">
-          Project submissions are gated to{" "}
-          <span className="font-medium text-gray-700">Alpine Labs Builder Pass</span> holders.
-        </p>
-        {!user && (
-          <p className="text-sm text-gray-400 mb-6">Connect your wallet to check eligibility.</p>
-        )}
+        <h2 className="text-2xl font-bold mb-2">Connect your wallet</h2>
+        <p className="text-gray-500 mb-6">Connect your wallet to submit a project.</p>
         <a href="/" className="inline-block mt-4 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );

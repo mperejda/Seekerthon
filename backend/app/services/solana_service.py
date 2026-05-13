@@ -29,7 +29,6 @@ RPC_URL = _settings.solana_rpc_url
 MAINNET_RPC_URL = _settings.solana_mainnet_rpc_url
 SKR_MINT = _settings.skr_token_mint
 GENESIS_COLLECTION = _settings.seeker_genesis_collection
-VOTING_PROGRAM = _settings.voting_program_id
 ESCROW_PROGRAM = _settings.escrow_program_id
 USDC_MINT = _settings.usdc_mint               # mainnet — Builder Pass flow
 ESCROW_USDC_MINT = _settings.escrow_usdc_mint  # devnet or mainnet — escrow flow
@@ -80,18 +79,21 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
     skr_staked: SKR locked in the SKR staking program (per-user account at offset 105)
     """
     # --- Liquid balance: all token accounts for this wallet/mint ---
-    resp = await _rpc_post(
-        "getTokenAccountsByOwner",
-        [wallet_address, {"mint": SKR_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
-        rpc_url=MAINNET_RPC_URL,
-    )
     balance_raw = 0
-    decimals = 6  # SKR always has 6 decimals; used as fallback if no accounts found
-    for acct in (resp.get("result", {}).get("value") or []):
-        info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
-        ta = info.get("tokenAmount", {})
-        balance_raw += int(ta.get("amount", 0))
-        decimals = int(ta.get("decimals", decimals))
+    decimals = 6
+    try:
+        resp = await _rpc_post(
+            "getTokenAccountsByOwner",
+            [wallet_address, {"mint": SKR_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        for acct in (resp.get("result", {}).get("value") or []):
+            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+            ta = info.get("tokenAmount", {})
+            balance_raw += int(ta.get("amount", 0))
+            decimals = int(ta.get("decimals", decimals))
+    except Exception as exc:
+        _log.warning("SKR liquid balance lookup failed for %s: %s", wallet_address, exc)
 
     divisor = 10 ** decimals
 
@@ -849,33 +851,12 @@ async def build_vote_transaction(
     """
     voter = Pubkey.from_string(voter_wallet)
 
-    if not project_pda:
-        # Memo path: mainnet, always simulates cleanly
-        instruction = Instruction(
-            program_id=MEMO_PROGRAM_ID,
-            accounts=[AccountMeta(pubkey=voter, is_signer=True, is_writable=False)],
-            data=f"seeker-vote:bps={vote_weight_bps}".encode(),
-        )
-        bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
-    else:
-        # Full voting-program path: devnet
-        project = Pubkey.from_string(project_pda)
-        voting_program = Pubkey.from_string(VOTING_PROGRAM)
-        vote_record_pda, _ = Pubkey.find_program_address(
-            [b"vote", bytes(voter), bytes(project)], voting_program
-        )
-        discriminator = bytes([0x14, 0xD4, 0x0F, 0xBD, 0x45, 0xB4, 0x45, 0x97])
-        instruction = Instruction(
-            program_id=voting_program,
-            accounts=[
-                AccountMeta(pubkey=voter, is_signer=True, is_writable=True),
-                AccountMeta(pubkey=project, is_signer=False, is_writable=True),
-                AccountMeta(pubkey=vote_record_pda, is_signer=False, is_writable=True),
-                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-            ],
-            data=discriminator + struct.pack("<H", vote_weight_bps),
-        )
-        bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    instruction = Instruction(
+        program_id=MEMO_PROGRAM_ID,
+        accounts=[AccountMeta(pubkey=voter, is_signer=True, is_writable=False)],
+        data=f"seeker-vote:bps={vote_weight_bps}".encode(),
+    )
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
 
     blockhash_str = bh_resp["result"]["value"]["blockhash"]
     recent_blockhash = Hash.from_string(blockhash_str)
@@ -887,14 +868,12 @@ async def build_vote_transaction(
 async def verify_transaction_on_chain(tx_signature: str, project_pda: str | None, voter_wallet: str) -> bool:
     """
     Confirm a vote transaction landed on-chain and the voter signed it.
-    Memo transactions (no project_pda) are verified on mainnet.
-    Voting-program transactions are verified on devnet.
+    All vote transactions use the memo program on mainnet.
     """
-    rpc = MAINNET_RPC_URL if not project_pda else RPC_URL
     resp = await _rpc_post(
         "getTransaction",
         [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
-        rpc_url=rpc,
+        rpc_url=MAINNET_RPC_URL,
     )
     tx_data = resp.get("result")
     if not tx_data:
@@ -903,31 +882,14 @@ async def verify_transaction_on_chain(tx_signature: str, project_pda: str | None
         return False
 
     message = tx_data.get("transaction", {}).get("message", {})
-    signer_pubkeys: set = set()
-    all_pubkeys: set = set()
     for acc in message.get("accountKeys", []):
         if isinstance(acc, dict):
-            pk = acc.get("pubkey", "")
-            all_pubkeys.add(pk)
-            if acc.get("signer"):
-                signer_pubkeys.add(pk)
+            if acc.get("pubkey") == voter_wallet and acc.get("signer"):
+                return True
         else:
-            all_pubkeys.add(str(acc))
-
-    if voter_wallet not in signer_pubkeys:
-        return False
-    if not project_pda:
-        return True  # memo tx: voter signed + tx succeeded is sufficient
-
-    if project_pda not in all_pubkeys:
-        return False
-    if VOTING_PROGRAM not in all_pubkeys:
-        return False
-    instructions = message.get("instructions", [])
-    return any(
-        isinstance(ix, dict) and ix.get("programId") == VOTING_PROGRAM
-        for ix in instructions
-    )
+            if str(acc) == voter_wallet:
+                return True
+    return False
 
 
 async def build_create_escrow_transaction(
@@ -999,9 +961,10 @@ async def build_create_escrow_transaction(
         [tx_b64, {"encoding": "base64", "commitment": "confirmed", "replaceRecentBlockhash": True}],
     )
     sim_result = sim_resp.get("result", {}).get("value", {})
+    sim_logs = sim_result.get("logs") or []
+    _log.info("escrow simulation result: err=%s logs=%s", sim_result.get("err"), sim_logs)
     if sim_result.get("err"):
-        logs = sim_result.get("logs") or []
-        raise ValueError(f"Simulation failed: {sim_result['err']} | logs: {logs}")
+        raise ValueError(f"Simulation failed: {sim_result['err']} | logs: {sim_logs}")
 
     return tx_b64, str(escrow_pda)
 

@@ -19,7 +19,6 @@ class Settings(BaseSettings):
 
     # Solana program IDs — must be set in .env after on-chain deployment
     escrow_program_id: str
-    voting_program_id: str
 
     # Seeker Genesis NFT collection address and SKR token mint — must be set in .env
     seeker_genesis_collection: str

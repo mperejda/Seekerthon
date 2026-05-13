@@ -11,7 +11,6 @@ const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.sola
 export interface SeekerUser {
   id: string;
   wallet_address: string;
-  has_builder_pass: boolean;
 }
 
 // undefined = auth check in progress, null = confirmed not logged in, SeekerUser = logged in
@@ -47,14 +46,25 @@ function AuthGate({ children }: { children: ReactNode }) {
         }
         return r.json();
       })
-      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address, has_builder_pass: u.has_builder_pass ?? false } : null))
+      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
       .catch(() => setUser(null));
   }, []);
 
-  // Sign challenge when wallet connects and no valid session exists
+  // Sign challenge when wallet connects and no valid session exists.
+  // If the connected wallet changed but there's still a token for a different wallet,
+  // clear the stale token so the user re-authenticates with the current wallet.
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
-    if (localStorage.getItem("seeker_token")) return;
+    const existingToken = localStorage.getItem("seeker_token");
+    if (existingToken) {
+      // If we already have a resolved user AND the wallet matches, nothing to do.
+      // If user is undefined (still loading) don't disrupt the in-progress check.
+      if (user === undefined) return;
+      if (user !== null && user.wallet_address === publicKey.toBase58()) return;
+      // Wallet changed — clear stale session and re-auth with the new wallet.
+      localStorage.removeItem("seeker_token");
+      setUser(null);
+    }
 
     authing.current = true;
     (async () => {
@@ -70,7 +80,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         });
         const data = await loginRes.json();
         localStorage.setItem("seeker_token", data.access_token);
-        setUser({ id: data.user.id, wallet_address: data.user.wallet_address, has_builder_pass: data.user.has_builder_pass ?? false });
+        setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
       } catch (e) {
         console.error("Wallet auth failed", e);
         setUser(null);
@@ -78,7 +88,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         authing.current = false;
       }
     })();
-  }, [connected, publicKey, signMessage]);
+  }, [connected, publicKey, signMessage, user]);
 
   return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }
