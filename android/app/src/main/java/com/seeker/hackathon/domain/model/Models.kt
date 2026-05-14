@@ -36,6 +36,7 @@ data class Project(
     val repoUrl: String?,
     val techStack: List<String>,
     val storageAssetIds: List<String>,
+    val videoUrl: String?,
     val onchainPda: String?,
     val status: String,
     val voteCount: Double,

@@ -52,6 +52,7 @@ data class ProjectDto(
     val repo_url: String?,
     val tech_stack: List<String>,
     val storage_asset_ids: List<String>,
+    val video_url: String?,
     val onchain_pda: String?,
     val status: String,
     val vote_count: Double,

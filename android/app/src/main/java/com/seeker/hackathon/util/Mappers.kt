@@ -42,6 +42,7 @@ fun ProjectDto.toProject() = Project(
     repoUrl = repo_url,
     techStack = tech_stack,
     storageAssetIds = storage_asset_ids,
+    videoUrl = video_url,
     onchainPda = onchain_pda,
     status = status,
     voteCount = vote_count,

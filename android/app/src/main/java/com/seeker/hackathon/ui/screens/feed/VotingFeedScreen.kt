@@ -477,6 +477,10 @@ private fun ProjectCard(
 
     Box(modifier = modifier) {
         when {
+            project.videoUrl != null -> VideoPlayer(
+                url = project.videoUrl,
+                modifier = Modifier.fillMaxSize(),
+            )
             youtubeId != null -> YouTubeThumbnail(
                 videoId = youtubeId,
                 onPlay = {
@@ -489,7 +493,7 @@ private fun ProjectCard(
                 modifier = Modifier.fillMaxSize(),
             )
             project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true -> VideoPlayer(
-                url = project.demoUrl,
+                url = project.demoUrl!!,
                 modifier = Modifier.fillMaxSize(),
             )
             project.storageAssetIds.isNotEmpty() -> AsyncImage(

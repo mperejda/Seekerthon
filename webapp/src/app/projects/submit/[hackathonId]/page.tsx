@@ -41,7 +41,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     repo_url: "",
     tech_stack: "",
   });
-  const [files, setFiles] = useState<FileList | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -117,19 +117,31 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
 
       setProjectId(project.id);
 
-      if (files) {
-        const fileList = Array.from(files);
-        for (let i = 0; i < fileList.length; i++) {
-          const file = fileList[i];
-          setUploadStatus(`Uploading file ${i + 1} of ${fileList.length}…`);
-          const fd = new FormData();
-          fd.append("file", file);
-          await fetch(`${API}/projects/${project.id}/assets`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-            body: fd,
-          });
-        }
+      if (videoFile) {
+        setUploadStatus("Requesting upload URL…");
+        const urlRes = await fetch(`${API}/projects/${project.id}/video-upload-url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ filename: videoFile.name, content_type: "video/mp4" }),
+        });
+        if (!urlRes.ok) throw new Error((await urlRes.json()).detail);
+        const { upload_url, key } = await urlRes.json();
+
+        setUploadStatus("Uploading video…");
+        const putRes = await fetch(upload_url, {
+          method: "PUT",
+          headers: { "Content-Type": "video/mp4" },
+          body: videoFile,
+        });
+        if (!putRes.ok) throw new Error("Video upload failed");
+
+        setUploadStatus("Saving video…");
+        const confirmRes = await fetch(`${API}/projects/${project.id}/video-confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ key }),
+        });
+        if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
       }
     } catch (err: any) {
       setError(err.message);
@@ -253,15 +265,14 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Demo video / screenshots</label>
+          <label className="block text-sm font-medium mb-1">Demo video</label>
           <input
             type="file"
-            multiple
-            accept="video/*,image/*"
-            onChange={(e) => setFiles(e.target.files)}
+            accept="video/mp4"
+            onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
             className="w-full border rounded-lg px-3 py-2"
           />
-          <p className="text-xs text-gray-500 mt-1">Upload a short demo video or screenshots. Max 50MB.</p>
+          <p className="text-xs text-gray-500 mt-1">Upload a short MP4 demo video. Max 50MB.</p>
         </div>
 
         <button

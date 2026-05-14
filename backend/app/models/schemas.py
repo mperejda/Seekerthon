@@ -189,6 +189,7 @@ class ProjectResponse(BaseModel):
     repo_url: Optional[str] = None
     tech_stack: List[str] = []
     storage_asset_ids: List[str] = []
+    video_url: Optional[str] = None
     onchain_pda: Optional[str] = None
     status: ProjectStatus
     vote_count: float = 0.0

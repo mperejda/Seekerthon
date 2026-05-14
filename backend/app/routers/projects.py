@@ -4,8 +4,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
 from app.db import get_supabase_admin
-from app.models.schemas import ProjectSubmit, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest
+from app.models.schemas import (
+    ProjectSubmit, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest,
+    AssetUploadUrlRequest, AssetUploadUrlResponse, AssetConfirmRequest, AssetConfirmResponse,
+)
 from app.services.solana_service import send_mark_submitted_transaction
+from app.services import r2_service
 
 router = APIRouter()
 
@@ -100,6 +104,41 @@ async def upload_asset(project_id: str, file: UploadFile = File(...), request: R
     asset_ids = project.data.get("storage_asset_ids", []) + [path]
     db.table("projects").update({"storage_asset_ids": asset_ids}).eq("id", project_id).execute()
     return {"path": path}
+
+
+@router.post("/{project_id}/video-upload-url", response_model=AssetUploadUrlResponse)
+async def get_video_upload_url(project_id: str, body: AssetUploadUrlRequest, request: Request):
+    """Return a presigned PUT URL so the client can upload an MP4 directly to R2."""
+    db = get_supabase_admin()
+    project = db.table("projects").select("team_lead_id").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.data["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+    if body.content_type != "video/mp4":
+        raise HTTPException(status_code=400, detail="Only video/mp4 uploads are supported")
+
+    try:
+        upload_url, public_url, key = r2_service.generate_upload_url(project_id, body.filename, body.content_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not generate upload URL: {exc}")
+
+    return AssetUploadUrlResponse(upload_url=upload_url, public_url=public_url, key=key)
+
+
+@router.post("/{project_id}/video-confirm", response_model=AssetConfirmResponse)
+async def confirm_video_upload(project_id: str, body: AssetConfirmRequest, request: Request):
+    """Record the R2 key as the project's video URL after a successful direct upload."""
+    db = get_supabase_admin()
+    project = db.table("projects").select("team_lead_id").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.data["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+
+    public_url = r2_service.key_to_public_url(body.key)
+    db.table("projects").update({"video_url": public_url}).eq("id", project_id).execute()
+    return AssetConfirmResponse(public_url=public_url)
 
 
 @router.get("/hackathon/{hackathon_id}", response_model=List[ProjectResponse])

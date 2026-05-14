@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     max_vote_multiplier: float = 5.0
     skr_per_multiplier_step: int = 100
 
+    # Cloudflare R2 storage (for project demo videos)
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_public_url: str = ""
+
     # Builder Pass NFT
     builder_pass_collection_mint: str = ""
     builder_pass_treasury: str = ""
