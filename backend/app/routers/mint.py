@@ -11,6 +11,7 @@ from app.services.solana_service import (
     fetch_confirmed_transaction,
     parse_treasury_usdc_delta,
     submit_mint_transaction,
+    validate_builder_pass_mint_transaction,
 )
 
 router = APIRouter()
@@ -38,26 +39,26 @@ def _already_owns(user_id: str) -> bool:
     return bool(row.data and row.data.get("has_builder_pass"))
 
 
-def _mint_ledger_status(db, mint_pubkey: str, mint_tx_signature: str) -> str | None:
+def _mint_ledger_row(db, mint_pubkey: str, mint_tx_signature: str) -> dict | None:
     by_sig = (
         db.table("builder_pass_mints")
-        .select("status")
+        .select("status,user_id,wallet_address")
         .eq("mint_tx_signature", mint_tx_signature)
         .maybe_single()
         .execute()
     )
     if by_sig.data:
-        return by_sig.data.get("status")
+        return by_sig.data
 
     by_mint = (
         db.table("builder_pass_mints")
-        .select("status")
+        .select("status,user_id,wallet_address")
         .eq("mint_pubkey", mint_pubkey)
         .maybe_single()
         .execute()
     )
     if by_mint.data:
-        return by_mint.data.get("status")
+        return by_mint.data
     return None
 
 
@@ -98,17 +99,29 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
     db = get_supabase_admin()
     try:
         mint_sig = await submit_mint_transaction(body.signed_tx_b64, body.mint_pubkey)
-        existing_status = _mint_ledger_status(db, body.mint_pubkey, mint_sig)
-        if existing_status == "confirmed":
+        existing_row = _mint_ledger_row(db, body.mint_pubkey, mint_sig)
+        if (
+            existing_row
+            and existing_row.get("status") == "confirmed"
+            and str(existing_row.get("user_id")) == str(request.state.user_id)
+            and existing_row.get("wallet_address") == request.state.wallet_address
+        ):
             db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
             return MintConfirmResponse(success=True, tx_signature=mint_sig)
-        if existing_status is not None:
+        if existing_row is not None:
             raise HTTPException(status_code=409, detail="Builder Pass mint requires manual reconciliation")
 
         tx_data = await fetch_confirmed_transaction(mint_sig)
         treasury_received = parse_treasury_usdc_delta(tx_data, _settings.builder_pass_treasury)
         expected_price = _settings.builder_pass_price_usdc
-        status = "confirmed" if treasury_received == expected_price else "reconciled_error"
+        is_valid_mint, validation_error = validate_builder_pass_mint_transaction(
+            tx_data,
+            request.state.wallet_address,
+            body.mint_pubkey,
+            expected_price,
+            _settings.builder_pass_treasury,
+        )
+        status = "confirmed" if is_valid_mint else "reconciled_error"
 
         db.table("builder_pass_mints").insert(
             {
@@ -126,10 +139,7 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         if status != "confirmed":
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "Builder Pass mint confirmed, but treasury USDC received "
-                    f"{treasury_received} did not match expected {expected_price}"
-                ),
+                detail=f"Builder Pass mint requires manual reconciliation: {validation_error}",
             )
     except HTTPException:
         raise

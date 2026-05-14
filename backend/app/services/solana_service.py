@@ -20,6 +20,7 @@ from solders.message import Message
 from solders.instruction import Instruction, AccountMeta
 from solders.hash import Hash
 import httpx
+from base58 import b58decode
 
 from app.config import get_settings
 
@@ -107,6 +108,67 @@ def _ed25519_verify_instruction(pubkey: Pubkey, signature: bytes, message: bytes
         + message
     )
     return Instruction(program_id=ED25519_PROGRAM_ID, accounts=[], data=data)
+
+
+def _tx_message(tx_data: dict[str, Any]) -> dict[str, Any]:
+    return tx_data.get("transaction", {}).get("message", {}) or {}
+
+
+def _tx_signers(tx_data: dict[str, Any]) -> set[str]:
+    return {
+        acc.get("pubkey", "")
+        for acc in _tx_message(tx_data).get("accountKeys", [])
+        if isinstance(acc, dict) and acc.get("signer")
+    }
+
+
+def _tx_account_keys(tx_data: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for acc in _tx_message(tx_data).get("accountKeys", []):
+        keys.add(acc.get("pubkey", "") if isinstance(acc, dict) else str(acc))
+    return keys
+
+
+def _instruction_data(ix: dict[str, Any]) -> bytes:
+    data = ix.get("data")
+    if isinstance(data, str):
+        try:
+            return b58decode(data)
+        except Exception:
+            return b""
+    if isinstance(data, list) and data and isinstance(data[0], str):
+        enc = data[1] if len(data) > 1 else "base64"
+        try:
+            return base64.b64decode(data[0]) if enc == "base64" else b58decode(data[0])
+        except Exception:
+            return b""
+    return b""
+
+
+def _outer_instructions(tx_data: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        ix for ix in (_tx_message(tx_data).get("instructions") or [])
+        if isinstance(ix, dict)
+    ]
+
+
+def _has_program_instruction(
+    tx_data: dict[str, Any],
+    program_id: str,
+    discriminator: bytes | None = None,
+    required_accounts: list[str] | None = None,
+) -> bool:
+    required = set(required_accounts or [])
+    for ix in _outer_instructions(tx_data):
+        if ix.get("programId") != program_id:
+            continue
+        if discriminator is not None and not _instruction_data(ix).startswith(discriminator):
+            continue
+        accounts = set(ix.get("accounts") or [])
+        if required and not required.issubset(accounts):
+            continue
+        return True
+    return False
 
 
 async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
@@ -611,13 +673,13 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     return tx_b64
 
 
-async def fetch_confirmed_transaction(tx_signature: str) -> dict[str, Any]:
+async def fetch_confirmed_transaction(tx_signature: str, rpc_url: str = MAINNET_RPC_URL) -> dict[str, Any]:
     """Fetch a confirmed transaction as jsonParsed RPC data."""
     for _ in range(5):
         resp = await _rpc_post(
             "getTransaction",
             [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
-            rpc_url=MAINNET_RPC_URL,
+            rpc_url=rpc_url,
         )
         tx_data = resp.get("result")
         if tx_data:
@@ -642,6 +704,60 @@ def parse_treasury_usdc_delta(tx_data: dict[str, Any], treasury_wallet: str) -> 
         return total
 
     return summed_balances("postTokenBalances") - summed_balances("preTokenBalances")
+
+
+def _owner_token_delta(tx_data: dict[str, Any], mint: str, owner: str) -> int:
+    meta = tx_data.get("meta") or {}
+
+    def total(key: str) -> int:
+        amount = 0
+        for bal in meta.get(key) or []:
+            if bal.get("mint") == mint and bal.get("owner") == owner:
+                amount += int((bal.get("uiTokenAmount") or {}).get("amount") or "0")
+        return amount
+
+    return total("postTokenBalances") - total("preTokenBalances")
+
+
+def validate_builder_pass_mint_transaction(
+    tx_data: dict[str, Any],
+    buyer_wallet: str,
+    mint_pubkey: str,
+    expected_price_usdc_raw: int,
+    treasury_wallet: str,
+) -> tuple[bool, str]:
+    """Validate that a confirmed tx actually minted the requested Builder Pass to the buyer."""
+    if buyer_wallet not in _tx_signers(tx_data):
+        return False, "buyer did not sign transaction"
+    if mint_pubkey not in _tx_signers(tx_data):
+        return False, "mint account did not sign transaction"
+
+    treasury_delta = parse_treasury_usdc_delta(tx_data, treasury_wallet)
+    if treasury_delta != expected_price_usdc_raw:
+        return False, f"treasury USDC received {treasury_delta}, expected {expected_price_usdc_raw}"
+
+    nft_delta = _owner_token_delta(tx_data, mint_pubkey, buyer_wallet)
+    if nft_delta != 1:
+        return False, f"buyer NFT balance delta was {nft_delta}, expected 1"
+
+    account_keys = _tx_account_keys(tx_data)
+    if mint_pubkey not in account_keys:
+        return False, "mint account missing from transaction"
+
+    mint_pk = Pubkey.from_string(mint_pubkey)
+    metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+
+    if not _has_program_instruction(tx_data, str(METADATA_PROGRAM_ID), bytes([33]), [mint_pubkey]):
+        return False, "CreateMetadataAccountV3 instruction missing"
+    if not _has_program_instruction(tx_data, str(METADATA_PROGRAM_ID), bytes([17]), [mint_pubkey]):
+        return False, "CreateMasterEditionV3 instruction missing"
+    if not _has_program_instruction(tx_data, str(METADATA_PROGRAM_ID), bytes([18]), [str(metadata_pda)]):
+        return False, "VerifyCollection instruction missing"
+
+    return True, "ok"
 
 
 async def submit_and_confirm_transaction(signed_tx_b64: str) -> str:
@@ -1038,7 +1154,8 @@ async def build_create_escrow_transaction(
     recent_blockhash = Hash.from_string(blockhash_str)
 
     msg = Message.new_with_blockhash([instruction], organizer, recent_blockhash)
-    tx = Transaction([platform_admin_kp], msg, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    tx.partial_sign([platform_admin_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
     # Simulate first to surface program errors before sending to the client
@@ -1301,28 +1418,77 @@ async def verify_program_transaction_on_chain(
     tx_signature: str,
     expected_signer: str,
     required_accounts: list[str],
+    instruction_name: str,
 ) -> bool:
-    resp = await _rpc_post(
-        "getTransaction",
-        [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+    tx = await fetch_confirmed_transaction(tx_signature, rpc_url=RPC_URL)
+    if expected_signer not in _tx_signers(tx):
+        return False
+    return _has_program_instruction(
+        tx,
+        ESCROW_PROGRAM,
+        _anchor_discriminator(instruction_name),
+        required_accounts,
     )
-    tx = resp.get("result")
-    if not tx or tx.get("meta", {}).get("err") is not None:
+
+
+async def verify_escrow_account_on_chain(
+    hackathon_id_str: str,
+    escrow_pubkey: str,
+    organizer_wallet: str,
+    prize_usdc: int,
+    voting_start_ts: int,
+    voting_end_ts: int,
+) -> bool:
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    expected_pda, _ = Pubkey.find_program_address(
+        [b"hackathon_escrow", _uuid.UUID(hackathon_id_str).bytes],
+        escrow_program,
+    )
+    if str(expected_pda) != escrow_pubkey:
         return False
-    message = tx.get("transaction", {}).get("message", {})
-    account_keys = message.get("accountKeys", [])
-    all_pubkeys: set = set()
-    signer_pubkeys: set = set()
-    for acc in account_keys:
-        if isinstance(acc, dict):
-            pk = acc.get("pubkey", "")
-            all_pubkeys.add(pk)
-            if acc.get("signer"):
-                signer_pubkeys.add(pk)
-        else:
-            all_pubkeys.add(str(acc))
-    if expected_signer not in signer_pubkeys:
+
+    resp = await _rpc_post(
+        "getAccountInfo",
+        [escrow_pubkey, {"encoding": "base64", "commitment": "confirmed"}],
+    )
+    value = (resp.get("result") or {}).get("value")
+    if not value or value.get("owner") != ESCROW_PROGRAM:
         return False
-    if ESCROW_PROGRAM not in all_pubkeys:
+
+    data = base64.b64decode(value["data"][0])
+    min_len = 8 + 32 + 32 + 32 + 16 + 8 + 8 + 8
+    if len(data) < min_len:
         return False
-    return all(account in all_pubkeys for account in required_accounts)
+
+    pos = 8
+    organizer = str(Pubkey.from_bytes(data[pos:pos + 32]))
+    pos += 32
+    usdc_mint = str(Pubkey.from_bytes(data[pos:pos + 32]))
+    pos += 32
+    platform_admin = str(Pubkey.from_bytes(data[pos:pos + 32]))
+    pos += 32
+    hackathon_id = data[pos:pos + 16]
+    pos += 16
+    prize = struct.unpack_from("<Q", data, pos)[0]
+    pos += 8
+    voting_start = struct.unpack_from("<q", data, pos)[0]
+    pos += 8
+    voting_end = struct.unpack_from("<q", data, pos)[0]
+    pos += 8
+    project_count = struct.unpack_from("<I", data, pos)[0]
+    pos += 4
+    status = data[pos]
+
+    expected_admin = str(_escrow_platform_admin_keypair().pubkey())
+
+    return (
+        organizer == organizer_wallet
+        and usdc_mint == ESCROW_USDC_MINT
+        and platform_admin == expected_admin
+        and hackathon_id == _uuid.UUID(hackathon_id_str).bytes
+        and prize == prize_usdc
+        and voting_start == voting_start_ts
+        and voting_end == voting_end_ts
+        and project_count == 0
+        and status == 0
+    )

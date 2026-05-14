@@ -12,6 +12,7 @@ from app.services.solana_service import (
     build_create_escrow_transaction,
     build_claim_prize_transaction,
     build_refund_transaction,
+    verify_escrow_account_on_chain,
     verify_program_transaction_on_chain,
 )
 
@@ -105,7 +106,21 @@ async def prepare_create_escrow(hackathon_id: str, request: Request):
 async def set_escrow(hackathon_id: str, body: EscrowSetRequest, request: Request):
     """Called after organizer signs the create_hackathon tx and escrow is deployed."""
     db = get_supabase_admin()
-    _assert_organizer(db, hackathon_id, request.state.user_id)
+    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
+    voting_start_ts = int(_parse_dt(hackathon["voting_start"]).timestamp())
+    voting_end_ts = int(_parse_dt(hackathon["voting_end"]).timestamp())
+    if body.escrow_pubkey != body.onchain_pda:
+        raise HTTPException(status_code=400, detail="Escrow pubkey must match on-chain PDA")
+    verified = await verify_escrow_account_on_chain(
+        hackathon_id,
+        body.escrow_pubkey,
+        request.state.wallet_address,
+        int(hackathon["prize_pool_usdc"]),
+        voting_start_ts,
+        voting_end_ts,
+    )
+    if not verified:
+        raise HTTPException(status_code=400, detail="Escrow account not confirmed on-chain")
     result = db.table("hackathons").update({
         "escrow_pubkey": body.escrow_pubkey,
         "onchain_pda": body.onchain_pda,
@@ -240,6 +255,7 @@ async def verify_and_refund(
             body.tx_signature,
             request.state.wallet_address,
             [hackathon["escrow_pubkey"]],
+            "refund_escrow",
         )
         if not verified:
             raise HTTPException(status_code=400, detail="Refund transaction not confirmed on-chain")
@@ -309,6 +325,7 @@ async def confirm_claim(
         body.tx_signature,
         request.state.wallet_address,
         [hackathon["escrow_pubkey"], winner["onchain_pda"]],
+        "claim_prize",
     )
     if not verified:
         raise HTTPException(status_code=400, detail="Claim transaction not confirmed on-chain")

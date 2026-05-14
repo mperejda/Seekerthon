@@ -103,6 +103,7 @@ async def confirm_project_registration(project_id: str, body: VerifyReleaseReque
         body.tx_signature,
         request.state.wallet_address,
         [hackathon.data["escrow_pubkey"], project_record],
+        "register_project",
     )
     if not verified:
         raise HTTPException(status_code=400, detail="Project registration transaction not confirmed on-chain")
