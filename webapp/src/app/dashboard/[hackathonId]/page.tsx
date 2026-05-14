@@ -51,7 +51,7 @@ const STATUS_LABEL: Record<string, string> = {
   accepting_submissions: "Accepting submissions",
   open: "Open",
   voting: "Voting in progress",
-  verifying: "Verification in progress",
+  verifying: "Voting ended",
   completed: "Complete",
 };
 
@@ -60,7 +60,7 @@ const STATUS_BADGE: Record<string, string> = {
   accepting_submissions: "bg-green-100 text-green-700",
   open: "bg-green-100 text-green-700",
   voting: "bg-blue-100 text-blue-700",
-  verifying: "bg-yellow-100 text-yellow-700",
+  verifying: "bg-green-100 text-green-700",
   completed: "bg-purple-100 text-purple-700",
 };
 
@@ -226,11 +226,11 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
         </div>
       )}
       {hackathonStatus === "verifying" && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
-          <strong>Voting complete.</strong>{" "}
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
+          <strong>Voting has ended.</strong>{" "}
           {sorted.length === 0
-            ? "No projects were submitted. The organizer can refund the prize pool."
-            : "The top registered project can claim the prize below."}
+            ? "No projects were submitted. The organizer can reclaim the prize pool below."
+            : "The prize is ready to be claimed by the winner."}
         </div>
       )}
       {hackathonStatus === "completed" && (

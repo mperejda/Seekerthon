@@ -45,7 +45,7 @@ const STATUS_BADGE: Record<string, string> = {
   accepting_submissions: "bg-green-100 text-green-700",
   open: "bg-green-100 text-green-700",
   voting: "bg-blue-100 text-blue-700",
-  verifying: "bg-yellow-100 text-yellow-700",
+  verifying: "bg-green-100 text-green-700",
   completed: "bg-purple-100 text-purple-700",
 };
 
@@ -54,7 +54,7 @@ const STATUS_LABEL: Record<string, string> = {
   accepting_submissions: "Accepting submissions",
   open: "Open",
   voting: "Voting in progress",
-  verifying: "Verification in progress",
+  verifying: "Voting ended",
   completed: "Complete",
 };
 
