@@ -1,6 +1,7 @@
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Query
 from typing import List, Optional
+from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
 from app.models.schemas import (
     HackathonCreate, HackathonUpdate, HackathonResponse, EscrowSetRequest,
@@ -14,6 +15,10 @@ from app.services.solana_service import (
 )
 
 router = APIRouter()
+
+
+ACTIVE_HACKATHON_STATUSES = ("draft", "open", "voting", "verifying")
+ACTIVE_HACKATHON_ERROR = "A hackathon is already active. Complete it before creating a new one."
 
 
 def _parse_dt(s: str) -> datetime:
@@ -31,13 +36,24 @@ def _project_count(db, hackathon_id: str) -> int:
     return result.count or 0
 
 
+def _assert_no_other_active_hackathon(db, exclude_id: str | None = None) -> None:
+    q = db.table("hackathons").select("id", count="exact").in_("status", ACTIVE_HACKATHON_STATUSES)
+    if exclude_id:
+        q = q.neq("id", exclude_id)
+    result = q.limit(1).execute()
+    if result.count or result.data:
+        raise HTTPException(status_code=409, detail=ACTIVE_HACKATHON_ERROR)
+
+
 @router.post("/", response_model=HackathonResponse)
 async def create_hackathon(body: HackathonCreate, request: Request):
     """Organizer creates a hackathon. Escrow PDA set after on-chain tx."""
     db = get_supabase_admin()
+    _assert_no_other_active_hackathon(db)
     data = {
         **body.model_dump(mode="json"),
         "organizer_id": request.state.user_id,
+        "max_projects": PROJECT_SUBMISSION_LIMIT,
         "status": "draft",
     }
     result = db.table("hackathons").insert(data).execute()
@@ -51,6 +67,8 @@ async def set_status(hackathon_id: str, body: HackathonUpdate, request: Request)
     _assert_organizer(db, hackathon_id, request.state.user_id)
     if not body.status:
         raise HTTPException(status_code=400, detail="status is required")
+    if body.status.value != "completed":
+        _assert_no_other_active_hackathon(db, exclude_id=hackathon_id)
     result = db.table("hackathons").update({"status": body.status}).eq("id", hackathon_id).execute()
     return HackathonResponse(**result.data[0])
 

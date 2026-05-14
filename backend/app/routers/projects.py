@@ -3,6 +3,7 @@ import uuid as uuid_module
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
+from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
 from app.models.schemas import ProjectCreate, ProjectResponse
 
@@ -24,11 +25,15 @@ async def submit_project(body: ProjectCreate, request: Request):
     if datetime.now(timezone.utc) >= voting_start:
         raise HTTPException(status_code=400, detail="Submission window has closed — voting has started")
 
-    # Enforce max_projects limit
+    # Enforce the launch submission cap regardless of older per-hackathon settings.
+    project_limit = min(h.get("max_projects") or PROJECT_SUBMISSION_LIMIT, PROJECT_SUBMISSION_LIMIT)
     existing_projects = db.table("projects").select("id") \
         .eq("hackathon_id", str(body.hackathon_id)).execute()
-    if len(existing_projects.data) >= h["max_projects"]:
-        raise HTTPException(status_code=409, detail="Hackathon has reached the maximum number of projects")
+    if len(existing_projects.data) >= project_limit:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Hackathon has reached the maximum of {PROJECT_SUBMISSION_LIMIT} projects",
+        )
 
     # One project per team lead per hackathon
     existing = db.table("projects").select("id") \

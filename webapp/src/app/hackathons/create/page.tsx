@@ -19,7 +19,6 @@ export default function CreateHackathonPage() {
     prize_usdc: "",
     voting_start: "",
     voting_end: "",
-    max_projects: "100",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +43,6 @@ export default function CreateHackathonPage() {
           prize_pool_usdc: Math.round(parseFloat(form.prize_usdc) * 1_000_000),
           voting_start: new Date(form.voting_start).toISOString(),
           voting_end: new Date(form.voting_end).toISOString(),
-          max_projects: parseInt(form.max_projects),
         }),
       });
 
@@ -98,30 +96,18 @@ export default function CreateHackathonPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Prize pool (USDC)</label>
-            <input
-              type="number"
-              required
-              min="1"
-              step="1"
-              value={form.prize_usdc}
-              onChange={(e) => setForm({ ...form, prize_usdc: e.target.value })}
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Max projects</label>
-            <input
-              type="number"
-              required
-              min="1"
-              value={form.max_projects}
-              onChange={(e) => setForm({ ...form, max_projects: e.target.value })}
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Prize pool (USDC)</label>
+          <input
+            type="number"
+            required
+            min="1"
+            step="1"
+            value={form.prize_usdc}
+            onChange={(e) => setForm({ ...form, prize_usdc: e.target.value })}
+            className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <p className="text-xs text-gray-500 mt-1">Launch hackathons are limited to 100 project submissions.</p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
