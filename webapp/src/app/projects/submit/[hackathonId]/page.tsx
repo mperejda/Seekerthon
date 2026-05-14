@@ -13,6 +13,17 @@ interface Hackathon {
   title: string;
 }
 
+interface Registration {
+  project_id: string;
+}
+
+interface RegistrationStatus {
+  is_registered: boolean;
+  registration: Registration | null;
+  spots_remaining: number;
+  spots_total: number;
+}
+
 function submissionsOpen(h: Hackathon): boolean {
   return h.status === "open" && new Date() < new Date(h.voting_start);
 }
@@ -32,8 +43,11 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
   const user = useUser();
+
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
+  const [regStatus, setRegStatus] = useState<RegistrationStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
+
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -42,33 +56,88 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     tech_stack: "",
   });
   const [videoFile, setVideoFile] = useState<File | null>(null);
+
   const [loading, setLoading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [stepStatus, setStepStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<"registered" | "submitted" | null>(null);
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("seeker_token") : null;
 
   useEffect(() => {
-    fetch(`${API}/hackathons/${hackathonId}`)
-      .then((r) => r.json())
-      .then(setHackathon)
+    Promise.all([
+      fetch(`${API}/hackathons/${hackathonId}`).then((r) => r.json()),
+      token
+        ? fetch(`${API}/hackathons/${hackathonId}/registration`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((r) => r.json())
+        : Promise.resolve(null),
+    ])
+      .then(([h, reg]) => {
+        setHackathon(h);
+        setRegStatus(reg);
+      })
       .finally(() => setStatusLoading(false));
-  }, [hackathonId]);
+  }, [hackathonId, token]);
+
+  const handleRegister = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const prepRes = await fetch(`${API}/hackathons/${hackathonId}/register-tx`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
+      const { transaction_b64, project_id } = await prepRes.json();
+
+      let tx_signature: string | null = null;
+
+      if (transaction_b64) {
+        if (!signTransaction) throw new Error("Wallet does not support transaction signing");
+        setStepStatus("Waiting for wallet approval…");
+        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+        const tx = Transaction.from(txBytes);
+        const signed = await signTransaction(tx);
+        setStepStatus("Submitting registration…");
+        tx_signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        setStepStatus("Confirming on-chain…");
+        await connection.confirmTransaction(tx_signature, "confirmed");
+      }
+
+      setStepStatus("Locking in your spot…");
+      const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ project_id, tx_signature }),
+      });
+      if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+
+      setRegStatus({ is_registered: true, registration: { project_id }, spots_remaining: 0, spots_total: 100 });
+      setDone("registered");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+      setStepStatus(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    const projectId = regStatus?.registration?.project_id;
+    if (!projectId) return;
 
     try {
-      const token = localStorage.getItem("seeker_token");
-      const res = await fetch(`${API}/projects/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+      setStepStatus("Submitting project details…");
+      const res = await fetch(`${API}/projects/${projectId}/submit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          hackathon_id: hackathonId,
           name: form.name,
           description: form.description,
           demo_url: form.demo_url || null,
@@ -76,50 +145,11 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           tech_stack: form.tech_stack.split(",").map((s) => s.trim()).filter(Boolean),
         }),
       });
-
       if (!res.ok) throw new Error((await res.json()).detail);
-      let project = await res.json();
-
-      if (project.status === "pending_registration") {
-        if (!signTransaction) {
-          throw new Error("Wallet does not support transaction signing");
-        }
-        setUploadStatus("Preparing on-chain project registration...");
-        const regRes = await fetch(`${API}/projects/${project.id}/register-tx`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!regRes.ok) throw new Error((await regRes.json()).detail);
-        const { transaction_b64 } = await regRes.json();
-        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
-        const tx = Transaction.from(txBytes);
-
-        setUploadStatus("Waiting for wallet approval...");
-        const signedTx = await signTransaction(tx);
-        setUploadStatus("Submitting registration...");
-        const sig = await connection.sendRawTransaction(signedTx.serialize(), {
-          skipPreflight: false,
-          preflightCommitment: "confirmed",
-        });
-        setUploadStatus("Confirming registration...");
-        await connection.confirmTransaction(sig, "confirmed");
-
-        const confirmRes = await fetch(`${API}/projects/${project.id}/register`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ tx_signature: sig }),
-        });
-        if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
-        project = await confirmRes.json();
-      }
-
-      setProjectId(project.id);
 
       if (videoFile) {
-        setUploadStatus("Requesting upload URL…");
-        const urlRes = await fetch(`${API}/projects/${project.id}/video-upload-url`, {
+        setStepStatus("Requesting upload URL…");
+        const urlRes = await fetch(`${API}/projects/${projectId}/video-upload-url`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ filename: videoFile.name, content_type: "video/mp4" }),
@@ -127,7 +157,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         if (!urlRes.ok) throw new Error((await urlRes.json()).detail);
         const { upload_url, key } = await urlRes.json();
 
-        setUploadStatus("Uploading video…");
+        setStepStatus("Uploading video…");
         const putRes = await fetch(upload_url, {
           method: "PUT",
           headers: { "Content-Type": "video/mp4" },
@@ -135,38 +165,27 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         });
         if (!putRes.ok) throw new Error("Video upload failed");
 
-        setUploadStatus("Saving video…");
-        const confirmRes = await fetch(`${API}/projects/${project.id}/video-confirm`, {
+        setStepStatus("Saving video…");
+        const confirmRes = await fetch(`${API}/projects/${projectId}/video-confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ key }),
         });
         if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
       }
+
+      setDone("submitted");
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
-      setUploadStatus(null);
+      setStepStatus(null);
     }
   };
 
-  if (projectId) {
-    return (
-      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
-        <div className="text-5xl mb-4">🎉</div>
-        <h2 className="text-2xl font-bold mb-2">Project submitted!</h2>
-        <p className="text-gray-600">Your project is now visible to Seeker voters.</p>
-        <p className="text-sm text-gray-400 mt-2">Project ID: {projectId}</p>
-      </div>
-    );
-  }
+  // ── Loading / auth guards ───────────────────────────────────────────────────
 
-  if (statusLoading) {
-    return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
-  }
-
-  if (user === undefined) {
+  if (statusLoading || user === undefined) {
     return <div className="max-w-2xl mx-auto py-12 px-4 text-gray-400">Loading...</div>;
   }
 
@@ -174,7 +193,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
         <h2 className="text-2xl font-bold mb-2">Connect your wallet</h2>
-        <p className="text-gray-500 mb-6">Connect your wallet to submit a project.</p>
+        <p className="text-gray-500 mb-6">Connect your wallet to register or submit a project.</p>
         <a href="/" className="inline-block mt-4 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );
@@ -191,15 +210,78 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     );
   }
 
+  // ── Success states ──────────────────────────────────────────────────────────
+
+  if (done === "submitted") {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="text-5xl mb-4">🎉</div>
+        <h2 className="text-2xl font-bold mb-2">Project submitted!</h2>
+        <p className="text-gray-600">Your project is now visible to Seeker voters.</p>
+        <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+      </div>
+    );
+  }
+
+  if (done === "registered") {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-2xl font-bold mb-2">Spot locked in!</h2>
+        <p className="text-gray-600 mb-6">You're registered. Come back before voting starts to fill in your project details.</p>
+        <a href="/" className="inline-block text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+      </div>
+    );
+  }
+
   const votingStartsAt = new Date(hackathon.voting_start);
+  const deadlineStr = votingStartsAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const isRegistered = regStatus?.is_registered ?? false;
+  const projectId = regStatus?.registration?.project_id ?? null;
+
+  // ── Step 1: Register ────────────────────────────────────────────────────────
+
+  if (!isRegistered) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4">
+        <a href="/" className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block">← Back to hackathons</a>
+        <h1 className="text-3xl font-bold mb-2">Register for {hackathon.title}</h1>
+        <p className="text-sm text-gray-500 mb-8">
+          Lock in your spot on-chain before voting begins {deadlineStr}. You can fill in project details after registering.
+        </p>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">{error}</div>
+        )}
+
+        {regStatus && (
+          <p className="text-sm text-gray-400 mb-6">
+            {regStatus.spots_remaining} of {regStatus.spots_total} spots remaining
+          </p>
+        )}
+
+        <button
+          onClick={handleRegister}
+          disabled={loading || !publicKey}
+          className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
+        >
+          {stepStatus ?? (loading ? "Registering…" : "Lock In My Spot")}
+        </button>
+        {!publicKey && (
+          <p className="text-xs text-gray-400 mt-2 text-center">Connect your wallet above to register.</p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Step 2: Submit details ──────────────────────────────────────────────────
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
+      <a href="/" className="text-sm text-gray-400 hover:text-gray-600 mb-6 inline-block">← Back to hackathons</a>
       <h1 className="text-3xl font-bold mb-2">Submit Project</h1>
       <p className="text-sm text-gray-500 mb-8">
-        Submissions close{" "}
-        {votingStartsAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-        {" "}when voting begins.
+        You're registered. Fill in your project details before voting begins {deadlineStr}.
       </p>
 
       {error && (
@@ -280,7 +362,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           disabled={loading}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
         >
-          {uploadStatus ?? (loading ? "Submitting..." : "Submit Project")}
+          {stepStatus ?? (loading ? "Submitting…" : "Submit Project")}
         </button>
       </form>
     </div>

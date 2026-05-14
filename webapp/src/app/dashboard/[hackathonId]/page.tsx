@@ -213,11 +213,6 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
             Fund Escrow to Open
           </a>
         )}
-        {isOrganizer && storedHackathonStatus === "open" && hackathonStatus === "accepting_submissions" && (
-          <button onClick={() => setStatus("voting")} disabled={statusUpdating} className="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {statusUpdating ? "Updating..." : "Start voting"}
-          </button>
-        )}
       </div>
 
       {hackathonStatus === "voting" && !votingEnded && (

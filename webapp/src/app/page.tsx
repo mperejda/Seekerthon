@@ -148,7 +148,7 @@ export default function HomePage() {
                       href={`/projects/submit/${h.id}`}
                       className="text-sm bg-purple-50 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-100 text-center"
                     >
-                      Submit Project
+                      Register / Submit
                     </a>
                   )}
                   {(status === "verifying" || status === "completed") && (
