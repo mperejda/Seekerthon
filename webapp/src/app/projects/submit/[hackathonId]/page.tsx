@@ -1,6 +1,7 @@
 "use client";
 import { use, useEffect, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { Transaction } from "@solana/web3.js";
 import { useUser } from "../../../providers";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
@@ -28,7 +29,8 @@ function closedReason(h: Hackathon): string {
 
 export default function SubmitProjectPage({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
+  const { connection } = useConnection();
   const user = useUser();
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -76,7 +78,43 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
       });
 
       if (!res.ok) throw new Error((await res.json()).detail);
-      const project = await res.json();
+      let project = await res.json();
+
+      if (project.status === "pending_registration") {
+        if (!signTransaction) {
+          throw new Error("Wallet does not support transaction signing");
+        }
+        setUploadStatus("Preparing on-chain project registration...");
+        const regRes = await fetch(`${API}/projects/${project.id}/register-tx`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!regRes.ok) throw new Error((await regRes.json()).detail);
+        const { transaction_b64 } = await regRes.json();
+        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+        const tx = Transaction.from(txBytes);
+
+        setUploadStatus("Waiting for wallet approval...");
+        const signedTx = await signTransaction(tx);
+        setUploadStatus("Submitting registration...");
+        const sig = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        setUploadStatus("Confirming registration...");
+        await connection.confirmTransaction(sig, "confirmed");
+
+        const confirmRes = await fetch(`${API}/projects/${project.id}/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ tx_signature: sig }),
+        });
+        if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+        project = await confirmRes.json();
+      }
+
       setProjectId(project.id);
 
       if (files) {

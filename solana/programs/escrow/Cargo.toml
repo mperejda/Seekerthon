@@ -19,3 +19,4 @@ default = []
 [dependencies]
 anchor-lang = { version = "1.0.2" }
 anchor-spl = { version = "1.0.2", features = ["token", "associated_token"] }
+solana-instructions-sysvar = "3.0.0"

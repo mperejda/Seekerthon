@@ -9,7 +9,8 @@ import logging
 import math
 import struct
 import uuid as _uuid
-from typing import Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Tuple
 
 from solders.keypair import Keypair as SoldersKeypair
 from solders.pubkey import Pubkey
@@ -48,6 +49,64 @@ TOKEN_2022_PROGRAM_ID = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCX
 METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
 ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
 SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
+ED25519_PROGRAM_ID = Pubkey.from_string("Ed25519SigVerify111111111111111111111111111")
+INSTRUCTIONS_SYSVAR_ID = Pubkey.from_string("Sysvar1nstructions1111111111111111111111111")
+CLAIM_MESSAGE_PREFIX = b"seekerthon-claim:v1"
+
+
+def _escrow_platform_admin_keypair() -> SoldersKeypair:
+    raw = json.loads(_settings.escrow_platform_admin_keypair)
+    if not raw:
+        raise ValueError("ESCROW_PLATFORM_ADMIN_KEYPAIR is required for escrow winner-claim flow")
+    return SoldersKeypair.from_bytes(bytes(raw))
+
+
+def _anchor_discriminator(name: str) -> bytes:
+    import hashlib
+    return hashlib.sha256(f"global:{name}".encode()).digest()[:8]
+
+
+def _claim_message(
+    escrow_program: Pubkey,
+    escrow: Pubkey,
+    hackathon_id_bytes: bytes,
+    project_id_bytes: bytes,
+    winner: Pubkey,
+    prize_usdc: int,
+    expires_at_ts: int,
+    nonce: bytes,
+) -> bytes:
+    return (
+        CLAIM_MESSAGE_PREFIX
+        + bytes(escrow_program)
+        + bytes(escrow)
+        + hackathon_id_bytes
+        + project_id_bytes
+        + bytes(winner)
+        + struct.pack("<Q", prize_usdc)
+        + struct.pack("<q", expires_at_ts)
+        + nonce
+    )
+
+
+def _ed25519_verify_instruction(pubkey: Pubkey, signature: bytes, message: bytes) -> Instruction:
+    sig_offset = 16
+    pk_offset = sig_offset + 64
+    msg_offset = pk_offset + 32
+    data = (
+        bytes([1, 0])
+        + struct.pack("<H", sig_offset)
+        + struct.pack("<H", 0xFFFF)
+        + struct.pack("<H", pk_offset)
+        + struct.pack("<H", 0xFFFF)
+        + struct.pack("<H", msg_offset)
+        + struct.pack("<H", len(message))
+        + struct.pack("<H", 0xFFFF)
+        + signature
+        + bytes(pubkey)
+        + message
+    )
+    return Instruction(program_id=ED25519_PROGRAM_ID, accounts=[], data=data)
 
 
 async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
@@ -263,8 +322,6 @@ async def build_partial_signed_mint_transaction(
     )
 
     SYSVAR_RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
-    sol_fee = settings.builder_pass_sol_fee_lamports
-
     rent_resp = await _rpc_post("getMinimumBalanceForRentExemption", [82], rpc_url=MAINNET_RPC_URL)
     mint_rent = rent_resp["result"]
 
@@ -295,23 +352,13 @@ async def build_partial_signed_mint_transaction(
         data=bytes([3]) + struct.pack("<Q", usdc_amount),
     )
 
-    # 3. SOL transfer: buyer → authority (covers on-chain NFT mint costs)
-    ix_sol_transfer = Instruction(
-        program_id=SYSTEM_PROGRAM_ID,
-        accounts=[
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
-            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=True),
-        ],
-        data=struct.pack("<I", 2) + struct.pack("<Q", sol_fee),
-    )
+    # NFT mint instructions (buyer pays, authority_kp + mint_kp sign)
 
-    # ── NFT mint instructions (authority_kp + mint_kp sign) ─────────────────
-
-    # 4. CreateAccount — authority pays rent for the new mint account
+    # 3. CreateAccount - buyer pays rent for the new mint account
     ix_create_account = Instruction(
         program_id=SYSTEM_PROGRAM_ID,
         accounts=[
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
             AccountMeta(pubkey=mint_pk, is_signer=True, is_writable=True),
         ],
         data=(
@@ -322,7 +369,7 @@ async def build_partial_signed_mint_transaction(
         ),
     )
 
-    # 5. InitializeMint — 0 decimals, freeze_authority set for Metaplex Master Edition
+    # 4. InitializeMint - 0 decimals, freeze_authority set for Metaplex Master Edition
     # SPL Token COption<Pubkey>: 1-byte discriminant (0=None, 1=Some) + 32-byte pubkey
     ix_init_mint = Instruction(
         program_id=TOKEN_PROGRAM_ID,
@@ -339,11 +386,11 @@ async def build_partial_signed_mint_transaction(
         ),
     )
 
-    # 6. Create buyer's NFT ATA (authority pays)
+    # 5. Create buyer's NFT ATA (buyer pays)
     ix_create_nft_ata = Instruction(
         program_id=ASSOCIATED_TOKEN_PROGRAM,
         accounts=[
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
             AccountMeta(pubkey=buyer_nft_ata, is_signer=False, is_writable=True),
             AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
@@ -353,7 +400,7 @@ async def build_partial_signed_mint_transaction(
         data=bytes([1]),
     )
 
-    # 7. MintTo — 1 token to buyer's ATA
+    # 6. MintTo - 1 token to buyer's ATA
     ix_mint_to = Instruction(
         program_id=TOKEN_PROGRAM_ID,
         accounts=[
@@ -364,14 +411,14 @@ async def build_partial_signed_mint_transaction(
         data=bytes([7]) + struct.pack("<Q", 1),
     )
 
-    # 8. CreateMetadataAccountV3
+    # 7. CreateMetadataAccountV3
     ix_create_metadata = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
             AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=False),
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # mint authority
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),   # payer
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),       # payer
             AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=False), # update authority
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSVAR_RENT, is_signer=False, is_writable=False),
@@ -392,7 +439,7 @@ async def build_partial_signed_mint_transaction(
         ),
     )
 
-    # 9. CreateMasterEditionV3 — max_supply = Some(0)
+    # 8. CreateMasterEditionV3 - max_supply = Some(0)
     ix_create_edition = Instruction(
         program_id=METADATA_PROGRAM_ID,
         accounts=[
@@ -400,7 +447,7 @@ async def build_partial_signed_mint_transaction(
             AccountMeta(pubkey=mint_pk, is_signer=False, is_writable=True),
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # update authority
             AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),  # mint authority
-            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),   # payer
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),       # payer
             AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
@@ -409,20 +456,43 @@ async def build_partial_signed_mint_transaction(
         data=bytes([17]) + bytes([1]) + struct.pack("<Q", 0),
     )
 
+    collection_metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+    collection_edition_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk), b"edition"],
+        METADATA_PROGRAM_ID,
+    )
+
+    ix_verify_collection = Instruction(
+        program_id=METADATA_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),
+            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=collection_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=collection_metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=collection_edition_pda, is_signer=False, is_writable=False),
+        ],
+        data=bytes([18]),
+    )
+
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
 
     instructions = [
-        ix_create_treasury_ata, ix_usdc_transfer, ix_sol_transfer,
+        ix_create_treasury_ata, ix_usdc_transfer,
         ix_create_account, ix_init_mint, ix_create_nft_ata,
-        ix_mint_to, ix_create_metadata, ix_create_edition,
+        ix_mint_to, ix_create_metadata, ix_create_edition, ix_verify_collection,
     ]
 
-    # Authority is fee payer; buyer is a co-signer only for the payment instructions
-    msg = Message.new_with_blockhash(instructions, authority_pk, recent_blockhash)
+    # Buyer is fee payer and pays all rent/ATA/metadata/verification SOL costs directly.
+    msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
 
-    # Partially sign: fills authority (slot 0) and mint_kp slots; buyer slot stays empty (zeros)
-    tx = Transaction([authority_kp, mint_kp], msg, recent_blockhash)
+    # Partially sign authority and mint slots; buyer fee-payer slot stays empty for the wallet.
+    tx = Transaction.new_unsigned(msg)
+    tx.partial_sign([authority_kp, mint_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
     # Pre-flight: simulate with sigVerify=False (buyer hasn't signed yet)
@@ -442,13 +512,13 @@ async def build_partial_signed_mint_transaction(
         str(mint_pk),
         usdc_amount,
         f"{usdc_amount / 1_000_000:.6g}",
-        sol_fee,
-        f"{sol_fee / 1_000_000_000:.6g}",
+        0,
+        "0",
     )
 
 
 async def submit_mint_transaction(signed_tx_b64: str, mint_pk_str: str) -> str:
-    """Submit the fully-signed combined mint tx, verify collection, return confirmed signature."""
+    """Submit the fully-signed combined mint tx and return the confirmed signature."""
     resp = await _rpc_post(
         "sendTransaction",
         [signed_tx_b64, {"encoding": "base64", "skipPreflight": True, "maxRetries": 3}],
@@ -471,7 +541,6 @@ async def submit_mint_transaction(signed_tx_b64: str, mint_pk_str: str) -> str:
             if status.get("err") is not None:
                 raise Exception(f"Combined mint tx failed on-chain: {status['err']}")
             if status.get("confirmationStatus") in ("confirmed", "finalized"):
-                await verify_nft_collection(mint_pk_str)
                 return sig
 
     raise Exception("Combined mint tx not confirmed within 60 seconds")
@@ -480,20 +549,15 @@ async def submit_mint_transaction(signed_tx_b64: str, mint_pk_str: str) -> str:
 async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) -> str:
     """
     Build an unsigned payment transaction the wallet signs to buy a Builder Pass.
-    Contains three instructions:
+    Contains two instructions:
       1. Idempotent create treasury USDC ATA (no-op if exists)
       2. USDC transfer: buyer → treasury
-      3. SOL transfer: buyer → authority (covers on-chain NFT mint costs)
     Buyer is the only signer.
     """
     settings = _settings
     buyer_pk = Pubkey.from_string(buyer_wallet)
     usdc_mint_pk = Pubkey.from_string(USDC_MINT)
     treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
-
-    # Derive authority pubkey from keypair (destination for SOL fee)
-    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
-    authority_pk = authority_kp.pubkey()
 
     buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
     treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
@@ -523,20 +587,7 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
         data=bytes([3]) + struct.pack("<Q", amount_raw),
     )
 
-    # 3. SOL transfer: buyer → authority (self-funds the on-chain NFT mint costs ~0.017 SOL)
-    sol_fee = settings.builder_pass_sol_fee_lamports
-    sol_transfer_ix = Instruction(
-        program_id=SYSTEM_PROGRAM_ID,
-        accounts=[
-            AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
-            AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=True),
-        ],
-        data=struct.pack("<I", 2) + struct.pack("<Q", sol_fee),  # SystemInstruction::Transfer
-    )
-
     instructions = [create_treasury_ata_ix, transfer_ix]
-    if sol_fee > 0:
-        instructions.append(sol_transfer_ix)
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
@@ -558,6 +609,39 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
         raise Exception(f"USDC transfer simulation failed: {sim_err} — logs: {logs[-3:] if logs else []}")
 
     return tx_b64
+
+
+async def fetch_confirmed_transaction(tx_signature: str) -> dict[str, Any]:
+    """Fetch a confirmed transaction as jsonParsed RPC data."""
+    for _ in range(5):
+        resp = await _rpc_post(
+            "getTransaction",
+            [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        tx_data = resp.get("result")
+        if tx_data:
+            if tx_data.get("meta", {}).get("err") is not None:
+                raise Exception(f"Confirmed transaction has on-chain error: {tx_data['meta']['err']}")
+            return tx_data
+        await asyncio.sleep(1)
+    raise Exception(f"Confirmed transaction not found: {tx_signature}")
+
+
+def parse_treasury_usdc_delta(tx_data: dict[str, Any], treasury_wallet: str) -> int:
+    """Return the raw USDC increase for the configured Builder Pass treasury owner."""
+    meta = tx_data.get("meta") or {}
+
+    def summed_balances(key: str) -> int:
+        total = 0
+        for bal in meta.get(key) or []:
+            if bal.get("mint") != USDC_MINT or bal.get("owner") != treasury_wallet:
+                continue
+            amount = (bal.get("uiTokenAmount") or {}).get("amount") or "0"
+            total += int(amount)
+        return total
+
+    return summed_balances("postTokenBalances") - summed_balances("preTokenBalances")
 
 
 async def submit_and_confirm_transaction(signed_tx_b64: str) -> str:
@@ -905,6 +989,8 @@ async def build_create_escrow_transaction(
     Instruction: create_hackathon(hackathon_id: [u8;16], prize_usdc: u64, voting_start: i64, voting_end: i64)
     """
     organizer = Pubkey.from_string(organizer_wallet)
+    platform_admin_kp = _escrow_platform_admin_keypair()
+    platform_admin = platform_admin_kp.pubkey()
     usdc_mint_pk = Pubkey.from_string(ESCROW_USDC_MINT)
     escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
 
@@ -920,8 +1006,7 @@ async def build_create_escrow_transaction(
 
     SYSVAR_RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
 
-    # sha256("global:create_hackathon")[:8]
-    discriminator = bytes([0xe4, 0x94, 0xee, 0xf6, 0x15, 0xdf, 0x2f, 0x45])
+    discriminator = _anchor_discriminator("create_hackathon")
 
     ix_data = (
         discriminator
@@ -935,6 +1020,7 @@ async def build_create_escrow_transaction(
         program_id=escrow_program,
         accounts=[
             AccountMeta(pubkey=organizer, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=platform_admin, is_signer=True, is_writable=False),
             AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
             AccountMeta(pubkey=escrow_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
@@ -952,7 +1038,7 @@ async def build_create_escrow_transaction(
     recent_blockhash = Hash.from_string(blockhash_str)
 
     msg = Message.new_with_blockhash([instruction], organizer, recent_blockhash)
-    tx = Transaction.new_unsigned(msg)
+    tx = Transaction([platform_admin_kp], msg, recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
     # Simulate first to surface program errors before sending to the client
@@ -1062,3 +1148,181 @@ async def verify_release_on_chain(tx_signature: str, escrow_pda: str, organizer_
         isinstance(ix, dict) and ix.get("programId") == ESCROW_PROGRAM
         for ix in instructions
     )
+
+
+async def build_register_project_transaction(
+    team_lead_wallet: str,
+    escrow_pda: str,
+    project_id_str: str,
+) -> tuple[str, str]:
+    team_lead = Pubkey.from_string(team_lead_wallet)
+    escrow = Pubkey.from_string(escrow_pda)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    project_id_bytes = _uuid.UUID(project_id_str).bytes
+    project_record, _ = Pubkey.find_program_address(
+        [b"project", bytes(escrow), project_id_bytes],
+        escrow_program,
+    )
+    instruction = Instruction(
+        program_id=escrow_program,
+        accounts=[
+            AccountMeta(pubkey=team_lead, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=escrow, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=project_record, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=_anchor_discriminator("register_project") + project_id_bytes,
+    )
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([instruction], team_lead, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    return base64.b64encode(bytes(tx)).decode(), str(project_record)
+
+
+def derive_project_record_pda(escrow_pda: str, project_id_str: str) -> str:
+    escrow = Pubkey.from_string(escrow_pda)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    project_id_bytes = _uuid.UUID(project_id_str).bytes
+    project_record, _ = Pubkey.find_program_address(
+        [b"project", bytes(escrow), project_id_bytes],
+        escrow_program,
+    )
+    return str(project_record)
+
+
+async def build_claim_prize_transaction(
+    winner_wallet: str,
+    hackathon_id_str: str,
+    escrow_pda: str,
+    project_id_str: str,
+    prize_usdc: int,
+) -> tuple[str, datetime]:
+    winner = Pubkey.from_string(winner_wallet)
+    escrow = Pubkey.from_string(escrow_pda)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    usdc_mint = Pubkey.from_string(ESCROW_USDC_MINT)
+    platform_admin_kp = _escrow_platform_admin_keypair()
+    hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
+    project_id_bytes = _uuid.UUID(project_id_str).bytes
+    nonce = _uuid.uuid4().bytes
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    expires_ts = int(expires_at.timestamp())
+    project_record, _ = Pubkey.find_program_address(
+        [b"project", bytes(escrow), project_id_bytes],
+        escrow_program,
+    )
+    vault = _find_ata(escrow, usdc_mint)
+    winner_usdc_ata = _find_ata(winner, usdc_mint)
+    message = _claim_message(
+        escrow_program,
+        escrow,
+        hackathon_id_bytes,
+        project_id_bytes,
+        winner,
+        prize_usdc,
+        expires_ts,
+        nonce,
+    )
+    signature = bytes(platform_admin_kp.sign_message(message))
+    ed25519_ix = _ed25519_verify_instruction(platform_admin_kp.pubkey(), signature, message)
+    create_winner_ata_ix = Instruction(
+        program_id=ASSOCIATED_TOKEN_PROGRAM,
+        accounts=[
+            AccountMeta(pubkey=winner, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=winner_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=winner, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=usdc_mint, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=bytes([1]),
+    )
+    claim_ix = Instruction(
+        program_id=escrow_program,
+        accounts=[
+            AccountMeta(pubkey=winner, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=usdc_mint, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=escrow, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=project_record, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=winner_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=INSTRUCTIONS_SYSVAR_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=(
+            _anchor_discriminator("claim_prize")
+            + hackathon_id_bytes
+            + project_id_bytes
+            + struct.pack("<Q", prize_usdc)
+            + struct.pack("<q", expires_ts)
+            + nonce
+        ),
+    )
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([create_winner_ata_ix, ed25519_ix, claim_ix], winner, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    return base64.b64encode(bytes(tx)).decode(), expires_at
+
+
+async def build_refund_transaction(
+    organizer_wallet: str,
+    hackathon_id_str: str,
+    escrow_pda: str,
+) -> str:
+    organizer = Pubkey.from_string(organizer_wallet)
+    escrow = Pubkey.from_string(escrow_pda)
+    usdc_mint = Pubkey.from_string(ESCROW_USDC_MINT)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
+    vault = _find_ata(escrow, usdc_mint)
+    organizer_usdc_ata = _find_ata(organizer, usdc_mint)
+    instruction = Instruction(
+        program_id=escrow_program,
+        accounts=[
+            AccountMeta(pubkey=organizer, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=usdc_mint, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=escrow, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=organizer_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=_anchor_discriminator("refund_escrow") + hackathon_id_bytes,
+    )
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([instruction], organizer, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    return base64.b64encode(bytes(tx)).decode()
+
+
+async def verify_program_transaction_on_chain(
+    tx_signature: str,
+    expected_signer: str,
+    required_accounts: list[str],
+) -> bool:
+    resp = await _rpc_post(
+        "getTransaction",
+        [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+    )
+    tx = resp.get("result")
+    if not tx or tx.get("meta", {}).get("err") is not None:
+        return False
+    message = tx.get("transaction", {}).get("message", {})
+    account_keys = message.get("accountKeys", [])
+    all_pubkeys: set = set()
+    signer_pubkeys: set = set()
+    for acc in account_keys:
+        if isinstance(acc, dict):
+            pk = acc.get("pubkey", "")
+            all_pubkeys.add(pk)
+            if acc.get("signer"):
+                signer_pubkeys.add(pk)
+        else:
+            all_pubkeys.add(str(acc))
+    if expected_signer not in signer_pubkeys:
+        return False
+    if ESCROW_PROGRAM not in all_pubkeys:
+        return False
+    return all(account in all_pubkeys for account in required_accounts)

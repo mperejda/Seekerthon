@@ -8,6 +8,8 @@ from app.db import get_supabase_admin
 from app.models.schemas import MintConfirmResponse
 from app.services.solana_service import (
     build_partial_signed_mint_transaction,
+    fetch_confirmed_transaction,
+    parse_treasury_usdc_delta,
     submit_mint_transaction,
 )
 
@@ -34,6 +36,29 @@ def _already_owns(user_id: str) -> bool:
     db = get_supabase_admin()
     row = db.table("users").select("has_builder_pass").eq("id", user_id).maybe_single().execute()
     return bool(row.data and row.data.get("has_builder_pass"))
+
+
+def _mint_ledger_status(db, mint_pubkey: str, mint_tx_signature: str) -> str | None:
+    by_sig = (
+        db.table("builder_pass_mints")
+        .select("status")
+        .eq("mint_tx_signature", mint_tx_signature)
+        .maybe_single()
+        .execute()
+    )
+    if by_sig.data:
+        return by_sig.data.get("status")
+
+    by_mint = (
+        db.table("builder_pass_mints")
+        .select("status")
+        .eq("mint_pubkey", mint_pubkey)
+        .maybe_single()
+        .execute()
+    )
+    if by_mint.data:
+        return by_mint.data.get("status")
+    return None
 
 
 @router.post("/builder-pass/prepare", response_model=PrepareResponse)
@@ -70,13 +95,48 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
+    db = get_supabase_admin()
     try:
         mint_sig = await submit_mint_transaction(body.signed_tx_b64, body.mint_pubkey)
+        existing_status = _mint_ledger_status(db, body.mint_pubkey, mint_sig)
+        if existing_status == "confirmed":
+            db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
+            return MintConfirmResponse(success=True, tx_signature=mint_sig)
+        if existing_status is not None:
+            raise HTTPException(status_code=409, detail="Builder Pass mint requires manual reconciliation")
+
+        tx_data = await fetch_confirmed_transaction(mint_sig)
+        treasury_received = parse_treasury_usdc_delta(tx_data, _settings.builder_pass_treasury)
+        expected_price = _settings.builder_pass_price_usdc
+        status = "confirmed" if treasury_received == expected_price else "reconciled_error"
+
+        db.table("builder_pass_mints").insert(
+            {
+                "user_id": request.state.user_id,
+                "wallet_address": request.state.wallet_address,
+                "mint_pubkey": body.mint_pubkey,
+                "mint_tx_signature": mint_sig,
+                "price_usdc_raw": expected_price,
+                "treasury_usdc_received_raw": treasury_received,
+                "status": status,
+                "raw_transaction_json": tx_data,
+            }
+        ).execute()
+
+        if status != "confirmed":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Builder Pass mint confirmed, but treasury USDC received "
+                    f"{treasury_received} did not match expected {expected_price}"
+                ),
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         _log.exception("Combined mint tx submission failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    db = get_supabase_admin()
     db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
     _log.info("Builder pass granted to user %s mint=%s tx=%s", request.state.user_id, body.mint_pubkey, mint_sig)
 

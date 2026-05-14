@@ -23,6 +23,7 @@ interface Hackathon {
 
 interface Project {
   id: string;
+  team_lead_id: string;
   name: string;
   description: string;
   demo_url: string | null;
@@ -37,7 +38,6 @@ function displayHackathonStatus(hackathon: Hackathon | null): string | null {
   const now = new Date();
   const votingStart = new Date(hackathon.voting_start);
   const votingEnd = new Date(hackathon.voting_end);
-
   if (hackathon.status === "completed") return "completed";
   if (hackathon.status === "draft") return "draft";
   if (now < votingStart) return "accepting_submissions";
@@ -64,26 +64,23 @@ const STATUS_BADGE: Record<string, string> = {
   completed: "bg-purple-100 text-purple-700",
 };
 
-export default function OrganizerDashboard({ params }: { params: Promise<{ hackathonId: string }> }) {
+export default function ResultsDashboard({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
-
   const user = useUser();
   const [projects, setProjects] = useState<Project[]>([]);
   const [hackathon, setHackathon] = useState<Hackathon | null>(null);
-  const hackathonStatus = displayHackathonStatus(hackathon);
   const [loading, setLoading] = useState(true);
-  const [verifying, setVerifying] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
   const [refunding, setRefunding] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/hackathons/${hackathonId}`)
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => (r.ok ? r.json() : null))
       .then((h) => h && setHackathon(h));
-
     fetch(`${API}/projects/hackathon/${hackathonId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load projects (${r.status})`);
@@ -94,31 +91,24 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       .finally(() => setLoading(false));
   }, [hackathonId]);
 
-  // Wait for auth to resolve before gating
   if (user === undefined) {
     return <div className="text-center py-20 text-gray-400">Loading...</div>;
   }
-
   if (user === null) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4 text-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-3">Connect your wallet</h1>
-        <p className="text-gray-500 mb-6">Sign in with your organizer wallet to access this dashboard.</p>
+        <p className="text-gray-500 mb-6">Sign in to view results or claim a prize.</p>
         <WalletMultiButton />
       </div>
     );
   }
 
-  if (hackathon && user.id !== hackathon.organizer_id) {
-    console.log("Access denied — user.id:", user.id, "organizer_id:", hackathon.organizer_id);
-    return (
-      <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">Access Denied</h1>
-        <p className="text-gray-500">This page is only available to the hackathon organizer.</p>
-        <a href="/" className="mt-6 inline-block text-purple-600 hover:underline">← Back to hackathons</a>
-      </div>
-    );
-  }
+  const hackathonStatus = displayHackathonStatus(hackathon);
+  const votingEnded = hackathon ? new Date() >= new Date(hackathon.voting_end) : false;
+  const storedHackathonStatus = hackathon?.status ?? null;
+  const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
+  const isOrganizer = !!hackathon && user.id === hackathon.organizer_id;
 
   const setStatus = async (status: string) => {
     setStatusUpdating(true);
@@ -130,8 +120,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
         body: JSON.stringify({ status }),
       });
       if (!res.ok) throw new Error((await res.json()).detail);
-      const h = await res.json();
-      setHackathon(h);
+      setHackathon(await res.json());
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -139,61 +128,33 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
     }
   };
 
-  const verifyAndRelease = async (projectId: string) => {
-    setVerifying(projectId);
+  const claimPrize = async (projectId: string) => {
+    setClaiming(projectId);
     setError(null);
     const token = localStorage.getItem("seeker_token");
-
     try {
-      // Step 1: get the unsigned release transaction from the backend
-      const prepRes = await fetch(
-        `${API}/hackathons/${hackathonId}/verify/${projectId}/release-tx`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const prepRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}/tx`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
+      const { transaction_b64 } = await prepRes.json();
+      const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+      const tx = Transaction.from(txBytes);
+      const txSignature = await sendTransaction(tx, connection, { skipPreflight: false });
+      await connection.confirmTransaction(txSignature, "confirmed");
 
-      let txSignature: string | undefined;
-
-      if (prepRes.ok) {
-        // Hackathon has an on-chain escrow — sign and send the release tx
-        const { transaction_b64 } = await prepRes.json();
-        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
-        const tx = Transaction.from(txBytes);
-
-        txSignature = await sendTransaction(tx, connection, {
-          skipPreflight: false,
-        });
-
-        // Wait for confirmation before calling the backend confirm step
-        await connection.confirmTransaction(txSignature, "confirmed");
-      } else if (prepRes.status !== 400) {
-        // Unexpected error from the prepare endpoint
-        throw new Error((await prepRes.json()).detail);
-      }
-      // If 400 (no escrow set up), fall through with no signature — dev/test mode
-
-      // Step 2: confirm with the backend (updates DB, verifies on-chain if escrow exists)
-      const confirmRes = await fetch(
-        `${API}/hackathons/${hackathonId}/verify/${projectId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ tx_signature: txSignature ?? null }),
-        }
-      );
+      const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tx_signature: txSignature }),
+      });
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
-      const updatedHackathon = await confirmRes.json();
-
-      setHackathon(updatedHackathon);
-      setProjects((prev) =>
-        prev.map((p) => (p.id === projectId ? { ...p, status: "winner" } : p))
-      );
+      setHackathon(await confirmRes.json());
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, status: "winner" } : p)));
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setVerifying(null);
+      setClaiming(null);
     }
   };
 
@@ -201,44 +162,24 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
     setRefunding(true);
     setError(null);
     const token = localStorage.getItem("seeker_token");
-
     try {
-      const prepRes = await fetch(
-        `${API}/hackathons/${hackathonId}/verify/refund/release-tx`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const prepRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund/release-tx`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
+      const { transaction_b64 } = await prepRes.json();
+      const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+      const tx = Transaction.from(txBytes);
+      const txSignature = await sendTransaction(tx, connection, { skipPreflight: false });
+      await connection.confirmTransaction(txSignature, "confirmed");
 
-      let txSignature: string | undefined;
-
-      if (prepRes.ok) {
-        const { transaction_b64 } = await prepRes.json();
-        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
-        const tx = Transaction.from(txBytes);
-
-        txSignature = await sendTransaction(tx, connection, {
-          skipPreflight: false,
-        });
-
-        await connection.confirmTransaction(txSignature, "confirmed");
-      } else if (prepRes.status !== 400) {
-        throw new Error((await prepRes.json()).detail);
-      }
-
-      const confirmRes = await fetch(
-        `${API}/hackathons/${hackathonId}/verify/refund`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ tx_signature: txSignature ?? null }),
-        }
-      );
+      const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tx_signature: txSignature }),
+      });
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
-      const updatedHackathon = await confirmRes.json();
-
-      setHackathon(updatedHackathon);
+      setHackathon(await confirmRes.json());
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -246,47 +187,34 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
     }
   };
 
-  const votingEnded = hackathon ? new Date() >= new Date(hackathon.voting_end) : false;
-  const storedHackathonStatus = hackathon?.status ?? null;
-  const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
-
   return (
     <div className="max-w-4xl mx-auto py-12 px-4">
       <div className="flex items-center justify-between mb-1">
-        <h1 className="text-3xl font-bold">{hackathon?.title ?? "Organizer Dashboard"}</h1>
+        <h1 className="text-3xl font-bold">{hackathon?.title ?? "Hackathon Results"}</h1>
         <WalletMultiButton />
       </div>
       {hackathon && (
         <div className="flex gap-4 text-sm text-gray-500 mb-2">
           <span>${(hackathon.prize_pool_usdc / 1_000_000).toLocaleString("en-US")} USDC prize</span>
-          <span>Voting {new Date(hackathon.voting_start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} – {new Date(hackathon.voting_end).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+          <span>
+            Voting {new Date(hackathon.voting_start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} - {new Date(hackathon.voting_end).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          </span>
         </div>
       )}
       <div className="flex items-center gap-3 mb-8">
-        <p className="text-gray-500 text-sm">Review submissions and release prizes to winners</p>
+        <p className="text-gray-500 text-sm">Review submissions and claim prizes</p>
         {hackathonStatus && (
-          <span
-            className={`text-xs font-medium px-2 py-1 rounded-full ${
-              STATUS_BADGE[hackathonStatus] ?? STATUS_BADGE.draft
-            }`}
-          >
+          <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[hackathonStatus] ?? STATUS_BADGE.draft}`}>
             {STATUS_LABEL[hackathonStatus] ?? hackathonStatus}
           </span>
         )}
-        {storedHackathonStatus === "draft" && (
-          <a
-            href={`/hackathons/${hackathonId}/fund`}
-            className="text-sm bg-purple-600 text-white px-4 py-1.5 rounded-lg hover:bg-purple-700"
-          >
+        {isOrganizer && storedHackathonStatus === "draft" && (
+          <a href={`/hackathons/${hackathonId}/fund`} className="text-sm bg-purple-600 text-white px-4 py-1.5 rounded-lg hover:bg-purple-700">
             Fund Escrow to Open
           </a>
         )}
-        {storedHackathonStatus === "open" && hackathonStatus === "accepting_submissions" && (
-          <button
-            onClick={() => setStatus("voting")}
-            disabled={statusUpdating}
-            className="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
+        {isOrganizer && storedHackathonStatus === "open" && hackathonStatus === "accepting_submissions" && (
+          <button onClick={() => setStatus("voting")} disabled={statusUpdating} className="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50">
             {statusUpdating ? "Updating..." : "Start voting"}
           </button>
         )}
@@ -294,7 +222,7 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
 
       {hackathonStatus === "voting" && !votingEnded && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
-          <strong>Voting in progress.</strong> Verify &amp; Release will become available once the voting period ends.
+          <strong>Voting in progress.</strong> Prize claiming becomes available once the voting period ends.
         </div>
       )}
       {hackathonStatus === "accepting_submissions" && (
@@ -304,10 +232,10 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       )}
       {hackathonStatus === "verifying" && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
-          <strong>Verification in progress.</strong>{" "}
+          <strong>Voting complete.</strong>{" "}
           {sorted.length === 0
-            ? "No projects were submitted. Refund the prize pool to the organizer wallet."
-            : <>Review the leaderboard below and click <em>Verify &amp; Release Prize</em> on the winning project.</>}
+            ? "No projects were submitted. The organizer can refund the prize pool."
+            : "The top registered project can claim the prize below."}
         </div>
       )}
       {hackathonStatus === "completed" && (
@@ -315,29 +243,15 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
           <strong>Hackathon complete.</strong> The prize pool has been released.
         </div>
       )}
-
-      {!publicKey && (hackathonStatus === "voting" || hackathonStatus === "verifying") && (
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
-          Connect your organizer wallet above to sign the prize release transaction.
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">{error}</div>
-      )}
+      {error && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">{error}</div>}
 
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading projects...</div>
       ) : sorted.length === 0 ? (
         <div className="text-center py-20">
-          <p className="text-gray-400 mb-4">No projects submitted yet.</p>
-          {hackathonStatus === "verifying" && (
-            <button
-              onClick={refundOrganizer}
-              disabled={refunding || !publicKey}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-              title={!publicKey ? "Connect your wallet first" : undefined}
-            >
+          <p className="text-gray-400 mb-4">No registered projects submitted yet.</p>
+          {isOrganizer && hackathonStatus === "verifying" && (
+            <button onClick={refundOrganizer} disabled={refunding || !publicKey} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
               {refunding ? "Refunding..." : "Refund Prize to Organizer"}
             </button>
           )}
@@ -345,57 +259,29 @@ export default function OrganizerDashboard({ params }: { params: Promise<{ hacka
       ) : (
         <div className="space-y-4">
           {sorted.map((project, idx) => (
-            <div
-              key={project.id}
-              className={`p-6 border rounded-xl ${
-                project.status === "winner" ? "border-yellow-400 bg-yellow-50" : "border-gray-200 bg-white"
-              }`}
-            >
+            <div key={project.id} className={`p-6 border rounded-xl ${project.status === "winner" ? "border-yellow-400 bg-yellow-50" : "border-gray-200 bg-white"}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-2xl font-bold text-gray-300">#{idx + 1}</span>
                     <h3 className="text-lg font-semibold">{project.name}</h3>
-                    {project.status === "winner" && (
-                      <span className="bg-yellow-400 text-yellow-900 text-xs font-medium px-2 py-1 rounded-full">
-                        Winner
-                      </span>
-                    )}
+                    {project.status === "winner" && <span className="bg-yellow-400 text-yellow-900 text-xs font-medium px-2 py-1 rounded-full">Winner</span>}
                   </div>
                   <p className="text-gray-600 text-sm mb-3">{project.description}</p>
                   <div className="flex gap-3 flex-wrap">
-                    {project.tech_stack.map((t) => (
-                      <span key={t} className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded">
-                        {t}
-                      </span>
-                    ))}
+                    {project.tech_stack.map((t) => <span key={t} className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded">{t}</span>)}
                   </div>
                   <div className="flex gap-4 mt-3">
-                    {project.demo_url && (
-                      <a href={project.demo_url} target="_blank" rel="noopener noreferrer"
-                        className="text-purple-600 text-sm hover:underline">
-                        Demo
-                      </a>
-                    )}
-                    {project.repo_url && (
-                      <a href={project.repo_url} target="_blank" rel="noopener noreferrer"
-                        className="text-purple-600 text-sm hover:underline">
-                        Repo
-                      </a>
-                    )}
+                    {project.demo_url && <a href={project.demo_url} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">Demo</a>}
+                    {project.repo_url && <a href={project.repo_url} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">Repo</a>}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-bold text-purple-600">{project.vote_count.toFixed(1)}</div>
                   <div className="text-xs text-gray-400 mb-3">weighted votes</div>
-                  {project.status !== "winner" && votingEnded && idx === 0 && (
-                    <button
-                      onClick={() => verifyAndRelease(project.id)}
-                      disabled={verifying === project.id || !publicKey}
-                      className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-                      title={!publicKey ? "Connect your wallet first" : undefined}
-                    >
-                      {verifying === project.id ? "Releasing..." : "Verify & Release Prize"}
+                  {project.status !== "winner" && votingEnded && idx === 0 && user.id === project.team_lead_id && (
+                    <button onClick={() => claimPrize(project.id)} disabled={claiming === project.id || !publicKey} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                      {claiming === project.id ? "Claiming..." : "Claim Prize"}
                     </button>
                   )}
                 </div>

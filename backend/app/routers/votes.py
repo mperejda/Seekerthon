@@ -63,9 +63,20 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     if existing.data:
         raise HTTPException(status_code=409, detail="Already voted for this project")
 
-    project = db.table("projects").select("id").eq("id", str(body.project_id)).maybe_single().execute()
+    project = db.table("projects").select("id,status,onchain_pda,hackathon_id").eq("id", str(body.project_id)).maybe_single().execute()
     if not project.data:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.data.get("status") not in ("submitted", "approved"):
+        raise HTTPException(status_code=400, detail="Project is not registered for voting")
+    if not project.data.get("onchain_pda"):
+        raise HTTPException(status_code=400, detail="Project registration is not confirmed on-chain")
+
+    hackathon = db.table("hackathons").select("status,voting_start,voting_end").eq("id", project.data["hackathon_id"]).single().execute()
+    if not hackathon.data:
+        raise HTTPException(status_code=404, detail="Hackathon not found")
+    now = datetime.now(timezone.utc)
+    if now < _parse_dt(hackathon.data["voting_start"]) or now >= _parse_dt(hackathon.data["voting_end"]):
+        raise HTTPException(status_code=400, detail="Hackathon is not in the voting window")
 
     # Compute and lock vote weight now — not at confirm time
     skr_balance, skr_staked = await get_skr_balance(wallet)

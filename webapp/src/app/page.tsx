@@ -151,6 +151,14 @@ export default function HomePage() {
                       Submit Project
                     </a>
                   )}
+                  {(status === "verifying" || status === "completed") && (
+                    <a
+                      href={`/dashboard/${h.id}`}
+                      className="text-sm bg-green-50 text-green-700 px-4 py-2 rounded-lg hover:bg-green-100 text-center"
+                    >
+                      View Results
+                    </a>
+                  )}
                   {user && h.organizer_id === user.id && (
                     <a
                       href={`/dashboard/${h.id}`}

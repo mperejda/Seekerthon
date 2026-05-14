@@ -29,6 +29,7 @@ backend/**/*.egg-info/
 # ================================
 solana/target/
 solana/.claude/settings.local.json
+solana/escrow-platform-admin.json
 
 # ================================
 # Next.js / Webapp

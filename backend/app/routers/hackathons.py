@@ -6,12 +6,13 @@ from app.db import get_supabase_admin
 from app.models.schemas import (
     HackathonCreate, HackathonUpdate, HackathonResponse, EscrowSetRequest,
     HackathonStatus, LeaderboardEntry, ProjectResponse,
-    ReleaseTxResponse, VerifyReleaseRequest,
+    ClaimTxResponse, ReleaseTxResponse, VerifyReleaseRequest,
 )
 from app.services.solana_service import (
     build_create_escrow_transaction,
-    build_release_transaction,
-    verify_release_on_chain,
+    build_claim_prize_transaction,
+    build_refund_transaction,
+    verify_program_transaction_on_chain,
 )
 
 router = APIRouter()
@@ -32,7 +33,10 @@ def _voting_has_ended(hackathon: dict) -> bool:
 
 
 def _project_count(db, hackathon_id: str) -> int:
-    result = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
+    result = db.table("projects").select("id", count="exact") \
+        .eq("hackathon_id", hackathon_id) \
+        .not_.is_("onchain_pda", "null") \
+        .execute()
     return result.count or 0
 
 
@@ -189,11 +193,10 @@ async def prepare_refund(hackathon_id: str, request: Request):
     if not hackathon.get("escrow_pubkey"):
         raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
 
-    tx_b64 = await build_release_transaction(
+    tx_b64 = await build_refund_transaction(
         organizer_wallet=request.state.wallet_address,
         hackathon_id_str=hackathon_id,
         escrow_pda=hackathon["escrow_pubkey"],
-        winner_wallet=request.state.wallet_address,
     )
 
     return ReleaseTxResponse(
@@ -233,10 +236,10 @@ async def verify_and_refund(
                 status_code=400,
                 detail="tx_signature required — sign the refund transaction first",
             )
-        verified = await verify_release_on_chain(
+        verified = await verify_program_transaction_on_chain(
             body.tx_signature,
-            hackathon["escrow_pubkey"],
             request.state.wallet_address,
+            [hackathon["escrow_pubkey"]],
         )
         if not verified:
             raise HTTPException(status_code=400, detail="Refund transaction not confirmed on-chain")
@@ -245,44 +248,79 @@ async def verify_and_refund(
     return HackathonResponse(**result.data[0])
 
 
-@router.get("/{hackathon_id}/verify/{project_id}/release-tx", response_model=ReleaseTxResponse)
-async def prepare_release(hackathon_id: str, project_id: str, request: Request):
-    """
-    Build an unsigned release_prize transaction for the organizer to sign.
-    The organizer signs this with their browser wallet and then calls POST /verify/{project_id}.
-    """
+@router.get("/{hackathon_id}/claim/{project_id}/tx", response_model=ClaimTxResponse)
+async def prepare_claim(hackathon_id: str, project_id: str, request: Request):
+    """Build an unsigned winner claim transaction certified by the backend."""
     db = get_supabase_admin()
-    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
-
+    result = db.table("hackathons").select("*").eq("id", hackathon_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Hackathon not found")
+    hackathon = result.data
     if hackathon["status"] in ("draft", "completed"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot release prize when hackathon status is '{hackathon['status']}'",
-        )
+        raise HTTPException(status_code=400, detail=f"Cannot claim prize when hackathon status is '{hackathon['status']}'")
+    if not _voting_has_ended(hackathon):
+        raise HTTPException(status_code=400, detail="Cannot claim before voting has ended")
     if not hackathon.get("escrow_pubkey"):
         raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
 
-    # Get winning project's team lead wallet address
-    project = db.table("projects") \
-        .select("id, users!team_lead_id(wallet_address)") \
-        .eq("id", project_id).single().execute()
-    if not project.data:
-        raise HTTPException(status_code=404, detail="Project not found")
+    winner = _winning_project(db, hackathon_id)
+    if not winner or winner["id"] != project_id:
+        raise HTTPException(status_code=403, detail="Only the winning registered project can claim")
+    if str(winner["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Only the winning team lead can claim")
 
-    winner_wallet = project.data["users"]["wallet_address"]
-
-    tx_b64 = await build_release_transaction(
-        organizer_wallet=request.state.wallet_address,
+    tx_b64, expires_at = await build_claim_prize_transaction(
+        winner_wallet=request.state.wallet_address,
         hackathon_id_str=hackathon_id,
         escrow_pda=hackathon["escrow_pubkey"],
-        winner_wallet=winner_wallet,
+        project_id_str=project_id,
+        prize_usdc=int(hackathon["prize_pool_usdc"]),
+    )
+    return ClaimTxResponse(
+        transaction_b64=tx_b64,
+        winner_wallet=request.state.wallet_address,
+        prize_lamports=int(hackathon["prize_pool_usdc"]),
+        expires_at=expires_at,
     )
 
-    return ReleaseTxResponse(
-        transaction_b64=tx_b64,
-        winner_wallet=winner_wallet,
-        prize_lamports=hackathon["prize_pool_usdc"],
+
+@router.post("/{hackathon_id}/claim/{project_id}", response_model=HackathonResponse)
+async def confirm_claim(
+    hackathon_id: str,
+    project_id: str,
+    body: VerifyReleaseRequest,
+    request: Request,
+):
+    """Confirm the winner's on-chain claim and mark the hackathon complete."""
+    if not body.tx_signature:
+        raise HTTPException(status_code=400, detail="tx_signature required")
+    db = get_supabase_admin()
+    result = db.table("hackathons").select("*").eq("id", hackathon_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Hackathon not found")
+    hackathon = result.data
+    winner = _winning_project(db, hackathon_id)
+    if not winner or winner["id"] != project_id:
+        raise HTTPException(status_code=403, detail="Only the winning registered project can claim")
+    if str(winner["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Only the winning team lead can claim")
+
+    verified = await verify_program_transaction_on_chain(
+        body.tx_signature,
+        request.state.wallet_address,
+        [hackathon["escrow_pubkey"], winner["onchain_pda"]],
     )
+    if not verified:
+        raise HTTPException(status_code=400, detail="Claim transaction not confirmed on-chain")
+
+    db.table("projects").update({"status": "winner"}).eq("id", project_id).execute()
+    updated = db.table("hackathons").update({"status": "completed"}).eq("id", hackathon_id).execute()
+    return HackathonResponse(**updated.data[0])
+
+
+@router.get("/{hackathon_id}/verify/{project_id}/release-tx", response_model=ReleaseTxResponse)
+async def prepare_release(hackathon_id: str, project_id: str, request: Request):
+    raise HTTPException(status_code=410, detail="Organizer release is deprecated. Winner must claim the prize.")
 
 
 @router.post("/{hackathon_id}/verify/{project_id}", response_model=HackathonResponse)
@@ -297,6 +335,7 @@ async def verify_and_release(
     If the hackathon has an on-chain escrow, tx_signature is required and verified.
     If no escrow is set (dev/test), DB state is updated without on-chain check.
     """
+    raise HTTPException(status_code=410, detail="Organizer release is deprecated. Winner must claim the prize.")
     db = get_supabase_admin()
     hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
 
@@ -331,4 +370,18 @@ def _assert_organizer(db, hackathon_id: str, user_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Hackathon not found")
     if str(result.data["organizer_id"]) != user_id:
         raise HTTPException(status_code=403, detail="Not the organizer")
+    return result.data
+
+
+def _winning_project(db, hackathon_id: str) -> dict | None:
+    result = db.table("projects") \
+        .select("id,team_lead_id,onchain_pda,vote_count,created_at") \
+        .eq("hackathon_id", hackathon_id) \
+        .in_("status", ["submitted", "approved", "winner"]) \
+        .not_.is_("onchain_pda", "null") \
+        .order("vote_count", desc=True) \
+        .order("created_at") \
+        .limit(1) \
+        .maybe_single() \
+        .execute()
     return result.data

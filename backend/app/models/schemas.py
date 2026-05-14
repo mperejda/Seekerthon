@@ -14,6 +14,7 @@ class HackathonStatus(str, Enum):
 
 
 class ProjectStatus(str, Enum):
+    pending_registration = "pending_registration"
     submitted = "submitted"
     approved = "approved"
     winner = "winner"
@@ -222,3 +223,15 @@ class ReleaseTxResponse(BaseModel):
 
 class VerifyReleaseRequest(BaseModel):
     tx_signature: Optional[str] = None
+
+
+class RegistrationTxResponse(BaseModel):
+    transaction_b64: str
+    project_record_pda: str
+
+
+class ClaimTxResponse(BaseModel):
+    transaction_b64: str
+    winner_wallet: str
+    prize_lamports: int
+    expires_at: datetime

@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
 from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
-from app.models.schemas import ProjectCreate, ProjectResponse
+from app.models.schemas import ProjectCreate, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest
+from app.services.solana_service import (
+    build_register_project_transaction,
+    derive_project_record_pda,
+    verify_program_transaction_on_chain,
+)
 
 router = APIRouter()
 
@@ -47,10 +52,65 @@ async def submit_project(body: ProjectCreate, request: Request):
         **body.model_dump(mode="json", exclude={"hackathon_id"}),
         "hackathon_id": str(body.hackathon_id),
         "team_lead_id": request.state.user_id,
-        "status": "submitted",
+        "status": "pending_registration" if h.get("escrow_pubkey") else "submitted",
         "tech_stack": body.tech_stack,
     }
     result = db.table("projects").insert(data).execute()
+    return ProjectResponse(**result.data[0])
+
+
+@router.get("/{project_id}/register-tx", response_model=RegistrationTxResponse)
+async def prepare_project_registration(project_id: str, request: Request):
+    db = get_supabase_admin()
+    project = db.table("projects").select("*").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.data["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+
+    hackathon = db.table("hackathons").select("*").eq("id", project.data["hackathon_id"]).single().execute()
+    if not hackathon.data:
+        raise HTTPException(status_code=404, detail="Hackathon not found")
+    if not hackathon.data.get("escrow_pubkey"):
+        raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
+
+    tx_b64, project_record = await build_register_project_transaction(
+        request.state.wallet_address,
+        hackathon.data["escrow_pubkey"],
+        project_id,
+    )
+    return RegistrationTxResponse(transaction_b64=tx_b64, project_record_pda=project_record)
+
+
+@router.post("/{project_id}/register", response_model=ProjectResponse)
+async def confirm_project_registration(project_id: str, body: VerifyReleaseRequest, request: Request):
+    if not body.tx_signature:
+        raise HTTPException(status_code=400, detail="tx_signature required")
+
+    db = get_supabase_admin()
+    project = db.table("projects").select("*").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.data["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+
+    hackathon = db.table("hackathons").select("*").eq("id", project.data["hackathon_id"]).single().execute()
+    if not hackathon.data or not hackathon.data.get("escrow_pubkey"):
+        raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
+
+    project_record = derive_project_record_pda(hackathon.data["escrow_pubkey"], project_id)
+    verified = await verify_program_transaction_on_chain(
+        body.tx_signature,
+        request.state.wallet_address,
+        [hackathon.data["escrow_pubkey"], project_record],
+    )
+    if not verified:
+        raise HTTPException(status_code=400, detail="Project registration transaction not confirmed on-chain")
+
+    result = db.table("projects").update({
+        "status": "submitted",
+        "onchain_pda": project_record,
+    }).eq("id", project_id).execute()
     return ProjectResponse(**result.data[0])
 
 
@@ -85,6 +145,7 @@ async def list_projects(
     db = get_supabase_admin()
     result = db.table("projects").select("*") \
         .eq("hackathon_id", hackathon_id) \
+        .in_("status", ["submitted", "approved", "winner"]) \
         .order("vote_count", desc=True) \
         .range(offset, offset + limit - 1) \
         .execute()
