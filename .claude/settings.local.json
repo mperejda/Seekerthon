@@ -5,7 +5,11 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "mcp__railway-mcp-server__list-projects",
-      "mcp__railway-mcp-server__get-logs"
+      "mcp__railway-mcp-server__get-logs",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MATTP\\\\Downloads\\\\seekerthon\\\\seekerthon\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MATTP\\\\Downloads\\\\seekerthon\\\\seekerthon\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }
