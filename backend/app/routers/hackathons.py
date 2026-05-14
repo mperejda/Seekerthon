@@ -33,10 +33,11 @@ def _voting_has_ended(hackathon: dict) -> bool:
     return now >= voting_end
 
 
-def _project_count(db, hackathon_id: str) -> int:
+def _submitted_project_count(db, hackathon_id: str) -> int:
+    """Registered-but-not-submitted projects do not block the organizer refund."""
     result = db.table("projects").select("id", count="exact") \
         .eq("hackathon_id", hackathon_id) \
-        .not_.is_("onchain_pda", "null") \
+        .in_("status", ["submitted", "approved", "winner"]) \
         .execute()
     return result.count or 0
 
@@ -142,8 +143,13 @@ async def list_hackathons(
     result = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     hackathons = []
     for h in result.data:
-        counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
-        hackathons.append(HackathonResponse(**h, project_count=counts.count or 0))
+        project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
+        reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
+        hackathons.append(HackathonResponse(
+            **h,
+            project_count=project_counts.count or 0,
+            registration_count=reg_counts.count or 0,
+        ))
     return hackathons
 
 
@@ -153,7 +159,13 @@ async def get_hackathon(hackathon_id: str):
     result = db.table("hackathons").select("*").eq("id", hackathon_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Hackathon not found")
-    return HackathonResponse(**result.data)
+    project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
+    reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
+    return HackathonResponse(
+        **result.data,
+        project_count=project_counts.count or 0,
+        registration_count=reg_counts.count or 0,
+    )
 
 
 @router.get("/{hackathon_id}/leaderboard", response_model=List[LeaderboardEntry])
@@ -203,8 +215,8 @@ async def prepare_refund(hackathon_id: str, request: Request):
         )
     if not _voting_has_ended(hackathon):
         raise HTTPException(status_code=400, detail="Cannot refund before voting has ended")
-    if _project_count(db, hackathon_id) > 0:
-        raise HTTPException(status_code=400, detail="Cannot refund because projects were submitted")
+    if _submitted_project_count(db, hackathon_id) > 0:
+        raise HTTPException(status_code=400, detail="Cannot refund — one or more projects have been submitted")
     if not hackathon.get("escrow_pubkey"):
         raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
 
@@ -242,8 +254,8 @@ async def verify_and_refund(
         )
     if not _voting_has_ended(hackathon):
         raise HTTPException(status_code=400, detail="Cannot refund before voting has ended")
-    if _project_count(db, hackathon_id) > 0:
-        raise HTTPException(status_code=400, detail="Cannot refund because projects were submitted")
+    if _submitted_project_count(db, hackathon_id) > 0:
+        raise HTTPException(status_code=400, detail="Cannot refund — one or more projects have been submitted")
 
     if hackathon.get("escrow_pubkey"):
         if not body.tx_signature:

@@ -1456,27 +1456,23 @@ async def verify_escrow_account_on_chain(
         return False
 
     data = base64.b64decode(value["data"][0])
-    min_len = 8 + 32 + 32 + 32 + 16 + 8 + 8 + 8
-    if len(data) < min_len:
+    # HackathonEscrow binary layout (154 bytes total):
+    # 8 disc | 32 organizer | 32 usdc_mint | 32 platform_admin | 16 hackathon_id
+    # | 8 prize_usdc | 8 voting_start | 8 voting_end | 4 project_count
+    # | 4 submitted_project_count | 1 status | 1 bump
+    if len(data) < 154:
         return False
 
     pos = 8
-    organizer = str(Pubkey.from_bytes(data[pos:pos + 32]))
-    pos += 32
-    usdc_mint = str(Pubkey.from_bytes(data[pos:pos + 32]))
-    pos += 32
-    platform_admin = str(Pubkey.from_bytes(data[pos:pos + 32]))
-    pos += 32
-    hackathon_id = data[pos:pos + 16]
-    pos += 16
-    prize = struct.unpack_from("<Q", data, pos)[0]
-    pos += 8
-    voting_start = struct.unpack_from("<q", data, pos)[0]
-    pos += 8
-    voting_end = struct.unpack_from("<q", data, pos)[0]
-    pos += 8
-    project_count = struct.unpack_from("<I", data, pos)[0]
-    pos += 4
+    organizer = str(Pubkey.from_bytes(data[pos:pos + 32])); pos += 32
+    usdc_mint = str(Pubkey.from_bytes(data[pos:pos + 32])); pos += 32
+    platform_admin = str(Pubkey.from_bytes(data[pos:pos + 32])); pos += 32
+    hackathon_id = data[pos:pos + 16]; pos += 16
+    prize = struct.unpack_from("<Q", data, pos)[0]; pos += 8
+    voting_start = struct.unpack_from("<q", data, pos)[0]; pos += 8
+    voting_end = struct.unpack_from("<q", data, pos)[0]; pos += 8
+    project_count = struct.unpack_from("<I", data, pos)[0]; pos += 4
+    submitted_project_count = struct.unpack_from("<I", data, pos)[0]; pos += 4
     status = data[pos]
 
     expected_admin = str(_escrow_platform_admin_keypair().pubkey())
@@ -1490,5 +1486,71 @@ async def verify_escrow_account_on_chain(
         and voting_start == voting_start_ts
         and voting_end == voting_end_ts
         and project_count == 0
+        and submitted_project_count == 0
         and status == 0
     )
+
+
+async def send_mark_submitted_transaction(
+    hackathon_id_str: str,
+    escrow_pda: str,
+    project_id_str: str,
+) -> str:
+    """
+    Platform admin marks a project as submitted on-chain.
+    Called server-side when the team fills in project details — no user wallet needed.
+    Sets project_record.is_submitted = true and increments escrow.submitted_project_count.
+    Returns the confirmed transaction signature.
+    """
+    platform_admin_kp = _escrow_platform_admin_keypair()
+    platform_admin = platform_admin_kp.pubkey()
+    escrow = Pubkey.from_string(escrow_pda)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
+    project_id_bytes = _uuid.UUID(project_id_str).bytes
+
+    project_record, _ = Pubkey.find_program_address(
+        [b"project", bytes(escrow), project_id_bytes],
+        escrow_program,
+    )
+
+    instruction = Instruction(
+        program_id=escrow_program,
+        accounts=[
+            AccountMeta(pubkey=platform_admin, is_signer=True, is_writable=False),
+            AccountMeta(pubkey=escrow, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=project_record, is_signer=False, is_writable=True),
+        ],
+        data=_anchor_discriminator("mark_submitted") + hackathon_id_bytes + project_id_bytes,
+    )
+
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([instruction], platform_admin, recent_blockhash)
+    tx = Transaction([platform_admin_kp], msg, recent_blockhash)
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
+
+    resp = await _rpc_post(
+        "sendTransaction",
+        [tx_b64, {"encoding": "base64", "skipPreflight": False, "preflightCommitment": "confirmed"}],
+    )
+    if "error" in resp:
+        raise Exception(f"mark_submitted send failed: {resp['error']}")
+    sig = resp["result"]
+    _log.info("mark_submitted submitted for project=%s sig=%s", project_id_str, sig)
+
+    for _ in range(30):
+        await asyncio.sleep(2)
+        conf = await _rpc_post(
+            "getSignatureStatuses",
+            [[sig], {"searchTransactionHistory": True}],
+        )
+        status = ((conf.get("result") or {}).get("value") or [None])[0]
+        if status:
+            if status.get("err") is not None:
+                raise Exception(f"mark_submitted tx failed on-chain: {status['err']}")
+            if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                _log.info("mark_submitted confirmed for project=%s", project_id_str)
+                return sig
+
+    raise Exception(f"mark_submitted not confirmed within 60s for project={project_id_str}")

@@ -3,115 +3,80 @@ import uuid as uuid_module
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
-from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
-from app.models.schemas import ProjectCreate, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest
-from app.services.solana_service import (
-    build_register_project_transaction,
-    derive_project_record_pda,
-    verify_program_transaction_on_chain,
-)
+from app.models.schemas import ProjectSubmit, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest
+from app.services.solana_service import send_mark_submitted_transaction
 
 router = APIRouter()
 
 
-@router.post("/", response_model=ProjectResponse)
-async def submit_project(body: ProjectCreate, request: Request):
+@router.patch("/{project_id}/submit", response_model=ProjectResponse)
+async def submit_project_details(project_id: str, body: ProjectSubmit, request: Request):
+    """
+    Fill in project details for a registered project (no wallet transaction needed).
+
+    The project must be in 'registered' status (created during hackathon registration).
+    After this call the project becomes 'submitted' and appears on the leaderboard.
+
+    Prize eligibility is enforced by two on-chain checks inside claim_prize:
+      1. The ProjectRecord PDA must exist (set at registration time — the allowlist check).
+      2. The platform admin must have signed the claim certificate, which the backend
+         only issues for projects with status='submitted' and a confirmed on-chain PDA.
+    """
     db = get_supabase_admin()
 
-    hackathon = db.table("hackathons").select("*").eq("id", str(body.hackathon_id)).single().execute()
+    project = db.table("projects").select("*").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    p = project.data
+
+    if str(p["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+    if p["status"] != "registered":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project is already '{p['status']}' — can only submit from 'registered' status",
+        )
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Project name is required")
+
+    hackathon = db.table("hackathons").select("status,voting_start,escrow_pubkey").eq("id", p["hackathon_id"]).single().execute()
     if not hackathon.data:
         raise HTTPException(status_code=404, detail="Hackathon not found")
     h = hackathon.data
-    if h["status"] not in ("open",):
-        raise HTTPException(status_code=400, detail="Hackathon is not open for submissions")
 
+    if h["status"] != "open":
+        raise HTTPException(status_code=400, detail="Hackathon is not open for submissions")
     voting_start = datetime.fromisoformat(h["voting_start"].replace("Z", "+00:00"))
     if datetime.now(timezone.utc) >= voting_start:
         raise HTTPException(status_code=400, detail="Submission window has closed — voting has started")
 
-    # Enforce the launch submission cap regardless of older per-hackathon settings.
-    project_limit = min(h.get("max_projects") or PROJECT_SUBMISSION_LIMIT, PROJECT_SUBMISSION_LIMIT)
-    existing_projects = db.table("projects").select("id") \
-        .eq("hackathon_id", str(body.hackathon_id)).execute()
-    if len(existing_projects.data) >= project_limit:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Hackathon has reached the maximum of {PROJECT_SUBMISSION_LIMIT} projects",
-        )
-
-    # One project per team lead per hackathon
-    existing = db.table("projects").select("id") \
-        .eq("hackathon_id", str(body.hackathon_id)) \
-        .eq("team_lead_id", request.state.user_id) \
-        .execute()
-    if existing.data:
-        raise HTTPException(status_code=409, detail="You already submitted a project to this hackathon")
-
-    data = {
-        **body.model_dump(mode="json", exclude={"hackathon_id"}),
-        "hackathon_id": str(body.hackathon_id),
-        "team_lead_id": request.state.user_id,
-        "status": "pending_registration" if h.get("escrow_pubkey") else "submitted",
-        "tech_stack": body.tech_stack,
-    }
-    result = db.table("projects").insert(data).execute()
-    return ProjectResponse(**result.data[0])
-
-
-@router.get("/{project_id}/register-tx", response_model=RegistrationTxResponse)
-async def prepare_project_registration(project_id: str, request: Request):
-    db = get_supabase_admin()
-    project = db.table("projects").select("*").eq("id", project_id).single().execute()
-    if not project.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if str(project.data["team_lead_id"]) != request.state.user_id:
-        raise HTTPException(status_code=403, detail="Not the project owner")
-
-    hackathon = db.table("hackathons").select("*").eq("id", project.data["hackathon_id"]).single().execute()
-    if not hackathon.data:
-        raise HTTPException(status_code=404, detail="Hackathon not found")
-    if not hackathon.data.get("escrow_pubkey"):
-        raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
-
-    tx_b64, project_record = await build_register_project_transaction(
-        request.state.wallet_address,
-        hackathon.data["escrow_pubkey"],
-        project_id,
-    )
-    return RegistrationTxResponse(transaction_b64=tx_b64, project_record_pda=project_record)
-
-
-@router.post("/{project_id}/register", response_model=ProjectResponse)
-async def confirm_project_registration(project_id: str, body: VerifyReleaseRequest, request: Request):
-    if not body.tx_signature:
-        raise HTTPException(status_code=400, detail="tx_signature required")
-
-    db = get_supabase_admin()
-    project = db.table("projects").select("*").eq("id", project_id).single().execute()
-    if not project.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if str(project.data["team_lead_id"]) != request.state.user_id:
-        raise HTTPException(status_code=403, detail="Not the project owner")
-
-    hackathon = db.table("hackathons").select("*").eq("id", project.data["hackathon_id"]).single().execute()
-    if not hackathon.data or not hackathon.data.get("escrow_pubkey"):
-        raise HTTPException(status_code=400, detail="Escrow not set up for this hackathon")
-
-    project_record = derive_project_record_pda(hackathon.data["escrow_pubkey"], project_id)
-    verified = await verify_program_transaction_on_chain(
-        body.tx_signature,
-        request.state.wallet_address,
-        [hackathon.data["escrow_pubkey"], project_record],
-        "register_project",
-    )
-    if not verified:
-        raise HTTPException(status_code=400, detail="Project registration transaction not confirmed on-chain")
+    escrow_pubkey = h.get("escrow_pubkey")
 
     result = db.table("projects").update({
+        "name": body.name.strip(),
+        "description": body.description,
+        "demo_url": body.demo_url,
+        "repo_url": body.repo_url,
+        "tech_stack": body.tech_stack,
         "status": "submitted",
-        "onchain_pda": project_record,
     }).eq("id", project_id).execute()
+
+    if escrow_pubkey:
+        try:
+            await send_mark_submitted_transaction(
+                hackathon_id_str=p["hackathon_id"],
+                escrow_pda=escrow_pubkey,
+                project_id_str=project_id,
+            )
+        except Exception as exc:
+            # Roll back the DB update so DB and chain stay in sync.
+            db.table("projects").update({"status": "registered"}).eq("id", project_id).execute()
+            raise HTTPException(
+                status_code=500,
+                detail=f"On-chain mark_submitted failed — please retry: {exc}",
+            )
+
     return ProjectResponse(**result.data[0])
 
 
@@ -160,3 +125,24 @@ async def get_project(project_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Project not found")
     return ProjectResponse(**result.data)
+
+
+# ── Deprecated endpoints ────────────────────────────────────────────────────
+# Project registration now happens via GET/POST /hackathons/{id}/register-tx and /register.
+
+@router.get("/{project_id}/register-tx", response_model=RegistrationTxResponse)
+async def prepare_project_registration_deprecated(project_id: str, request: Request):
+    raise HTTPException(
+        status_code=410,
+        detail="Use GET /hackathons/{hackathon_id}/register-tx instead. "
+               "Registration now happens at hackathon enrolment time.",
+    )
+
+
+@router.post("/{project_id}/register", response_model=ProjectResponse)
+async def confirm_project_registration_deprecated(project_id: str, body: VerifyReleaseRequest, request: Request):
+    raise HTTPException(
+        status_code=410,
+        detail="Use POST /hackathons/{hackathon_id}/register instead. "
+               "Registration now happens at hackathon enrolment time.",
+    )

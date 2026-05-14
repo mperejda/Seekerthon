@@ -37,6 +37,7 @@ pub mod escrow {
         escrow.voting_start = voting_start;
         escrow.voting_end = voting_end;
         escrow.project_count = 0;
+        escrow.submitted_project_count = 0;
         escrow.status = HackathonEscrowStatus::Active;
         escrow.bump = ctx.bumps.hackathon_escrow;
 
@@ -61,6 +62,9 @@ pub mod escrow {
         Ok(())
     }
 
+    /// The only transaction a participant ever signs.
+    /// Creates a ProjectRecord PDA (the on-chain allowlist entry) with is_submitted = false.
+    /// Increments project_count on the escrow.
     pub fn register_project(
         ctx: Context<RegisterProject>,
         project_id: [u8; 16],
@@ -78,6 +82,7 @@ pub mod escrow {
         record.hackathon_escrow = ctx.accounts.hackathon_escrow.key();
         record.project_id = project_id;
         record.team_lead = ctx.accounts.team_lead.key();
+        record.is_submitted = false;
         record.bump = ctx.bumps.project_record;
 
         let escrow = &mut ctx.accounts.hackathon_escrow;
@@ -95,6 +100,38 @@ pub mod escrow {
         Ok(())
     }
 
+    /// Called server-side by the platform admin (no user wallet TX) after the team fills
+    /// in their project details via the API.  Sets is_submitted = true and increments
+    /// submitted_project_count on the escrow so refund_escrow can check it on-chain.
+    /// Idempotent — safe to call again if the backend retries.
+    pub fn mark_submitted(
+        ctx: Context<MarkSubmitted>,
+        _hackathon_id: [u8; 16],
+        _project_id: [u8; 16],
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.hackathon_escrow.status == HackathonEscrowStatus::Active,
+            EscrowError::AlreadyReleased,
+        );
+
+        if !ctx.accounts.project_record.is_submitted {
+            ctx.accounts.project_record.is_submitted = true;
+            ctx.accounts.hackathon_escrow.submitted_project_count = ctx
+                .accounts
+                .hackathon_escrow
+                .submitted_project_count
+                .checked_add(1)
+                .ok_or(EscrowError::Overflow)?;
+        }
+
+        Ok(())
+    }
+
+    /// Three on-chain checks gate prize eligibility:
+    ///   1. ProjectRecord PDA exists        — project is on the allowlist (registered).
+    ///   2. project_record.is_submitted     — team filled in project details (not just a stub).
+    ///   3. Platform admin Ed25519 signature — certifies this project is the winner; the
+    ///      backend only issues this certificate for the highest-voted submitted project.
     pub fn claim_prize(
         ctx: Context<ClaimPrize>,
         _hackathon_id: [u8; 16],
@@ -123,6 +160,11 @@ pub mod escrow {
             ctx.accounts.project_record.project_id == project_id,
             EscrowError::InvalidProjectRecord,
         );
+        // Gate 2: project must have been submitted, not just registered.
+        require!(
+            ctx.accounts.project_record.is_submitted,
+            EscrowError::ProjectNotSubmitted,
+        );
         require!(
             ctx.accounts.hackathon_escrow.organizer != ctx.accounts.winner.key(),
             EscrowError::OrganizerCannotClaim,
@@ -143,6 +185,7 @@ pub mod escrow {
             expires_at,
             &nonce,
         );
+        // Gate 3: admin signature certifies this project won the vote.
         verify_ed25519_instruction(
             &ctx.accounts.instructions.to_account_info(),
             &ctx.accounts.hackathon_escrow.platform_admin,
@@ -177,6 +220,8 @@ pub mod escrow {
         Ok(())
     }
 
+    /// Organizer refund — only allowed when no teams have submitted project details.
+    /// Registered-but-not-submitted projects do not block the refund.
     pub fn refund_escrow(
         ctx: Context<RefundEscrow>,
         _hackathon_id: [u8; 16],
@@ -193,9 +238,10 @@ pub mod escrow {
             Clock::get()?.unix_timestamp >= ctx.accounts.hackathon_escrow.voting_end,
             EscrowError::VotingNotEnded,
         );
+        // Only block the refund for submitted projects — registered stubs don't count.
         require!(
-            ctx.accounts.hackathon_escrow.project_count == 0,
-            EscrowError::ProjectsRegistered,
+            ctx.accounts.hackathon_escrow.submitted_project_count == 0,
+            EscrowError::SubmittedProjectsExist,
         );
 
         let prize = ctx.accounts.hackathon_escrow.prize_usdc;
@@ -228,6 +274,8 @@ pub mod escrow {
         Ok(())
     }
 }
+
+// ── Account contexts ──────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
 #[instruction(hackathon_id: [u8; 16])]
@@ -295,6 +343,29 @@ pub struct RegisterProject<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(_hackathon_id: [u8; 16], _project_id: [u8; 16])]
+pub struct MarkSubmitted<'info> {
+    /// Platform admin recorded in the escrow at creation time.
+    pub platform_admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"hackathon_escrow", _hackathon_id.as_ref()],
+        bump = hackathon_escrow.bump,
+        constraint = hackathon_escrow.platform_admin == platform_admin.key() @ EscrowError::NotAuthorized,
+    )]
+    pub hackathon_escrow: Account<'info, HackathonEscrow>,
+
+    #[account(
+        mut,
+        seeds = [b"project", hackathon_escrow.key().as_ref(), _project_id.as_ref()],
+        bump = project_record.bump,
+        has_one = hackathon_escrow @ EscrowError::InvalidProjectRecord,
+    )]
+    pub project_record: Account<'info, ProjectRecord>,
+}
+
+#[derive(Accounts)]
 #[instruction(_hackathon_id: [u8; 16], project_id: [u8; 16])]
 pub struct ClaimPrize<'info> {
     #[account(mut)]
@@ -310,6 +381,7 @@ pub struct ClaimPrize<'info> {
     )]
     pub hackathon_escrow: Account<'info, HackathonEscrow>,
 
+    // Gate 1: account must exist — proves the project is on the allowlist.
     #[account(
         seeds = [b"project", hackathon_escrow.key().as_ref(), project_id.as_ref()],
         bump = project_record.bump,
@@ -371,6 +443,8 @@ pub struct RefundEscrow<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+// ── Account structs ───────────────────────────────────────────────────────────
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum HackathonEscrowStatus {
     Active,
@@ -379,33 +453,39 @@ pub enum HackathonEscrowStatus {
 
 #[account]
 pub struct HackathonEscrow {
-    pub organizer: Pubkey,
-    pub usdc_mint: Pubkey,
-    pub platform_admin: Pubkey,
-    pub hackathon_id: [u8; 16],
-    pub prize_usdc: u64,
-    pub voting_start: i64,
-    pub voting_end: i64,
-    pub project_count: u32,
-    pub status: HackathonEscrowStatus,
-    pub bump: u8,
+    pub organizer: Pubkey,               // 32
+    pub usdc_mint: Pubkey,               // 32
+    pub platform_admin: Pubkey,          // 32
+    pub hackathon_id: [u8; 16],          // 16
+    pub prize_usdc: u64,                 // 8
+    pub voting_start: i64,               // 8
+    pub voting_end: i64,                 // 8
+    pub project_count: u32,              // 4  — incremented on register_project
+    pub submitted_project_count: u32,    // 4  — incremented on mark_submitted; used by refund gate
+    pub status: HackathonEscrowStatus,   // 1
+    pub bump: u8,                        // 1
 }
 
 impl HackathonEscrow {
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 16 + 8 + 8 + 8 + 4 + 1 + 1;
+    // 8 (discriminator) + 32 + 32 + 32 + 16 + 8 + 8 + 8 + 4 + 4 + 1 + 1
+    pub const LEN: usize = 154;
 }
 
 #[account]
 pub struct ProjectRecord {
-    pub hackathon_escrow: Pubkey,
-    pub project_id: [u8; 16],
-    pub team_lead: Pubkey,
-    pub bump: u8,
+    pub hackathon_escrow: Pubkey,  // 32
+    pub project_id: [u8; 16],     // 16
+    pub team_lead: Pubkey,         // 32
+    pub is_submitted: bool,        // 1  — set by mark_submitted
+    pub bump: u8,                  // 1
 }
 
 impl ProjectRecord {
-    pub const LEN: usize = 8 + 32 + 16 + 32 + 1;
+    // 8 (discriminator) + 32 + 16 + 32 + 1 + 1
+    pub const LEN: usize = 90;
 }
+
+// ── Events ────────────────────────────────────────────────────────────────────
 
 #[event]
 pub struct HackathonCreated {
@@ -433,6 +513,8 @@ pub struct PrizeRefunded {
     pub organizer: Pubkey,
     pub prize_usdc: u64,
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn claim_message(
     program_id: &Pubkey,
@@ -501,6 +583,8 @@ fn verify_ed25519_instruction(
     err!(EscrowError::InvalidWinnerCertificate)
 }
 
+// ── Errors ────────────────────────────────────────────────────────────────────
+
 #[error_code]
 pub enum EscrowError {
     #[msg("Not the organizer")]
@@ -527,6 +611,10 @@ pub enum EscrowError {
     InvalidProjectRecord,
     #[msg("Organizer cannot claim the prize")]
     OrganizerCannotClaim,
-    #[msg("Cannot refund after projects have registered")]
-    ProjectsRegistered,
+    #[msg("Cannot refund: one or more projects have been submitted")]
+    SubmittedProjectsExist,
+    #[msg("Project has not been submitted — team must fill in project details first")]
+    ProjectNotSubmitted,
+    #[msg("Caller is not the platform admin")]
+    NotAuthorized,
 }

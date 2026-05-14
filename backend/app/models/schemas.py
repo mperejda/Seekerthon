@@ -14,7 +14,8 @@ class HackathonStatus(str, Enum):
 
 
 class ProjectStatus(str, Enum):
-    pending_registration = "pending_registration"
+    registered = "registered"          # on-chain PDA exists, details not yet filled in
+    pending_registration = "pending_registration"  # legacy — no longer issued
     submitted = "submitted"
     approved = "approved"
     winner = "winner"
@@ -116,10 +117,55 @@ class HackathonResponse(BaseModel):
     voting_end: datetime
     max_projects: int
     project_count: int = 0
+    registration_count: int = 0
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# ── Registrations ─────────────────────────────────────────────────────────────
+
+class HackathonRegistrationResponse(BaseModel):
+    id: UUID4
+    hackathon_id: UUID4
+    user_id: UUID4
+    wallet_address: str
+    project_id: Optional[UUID4] = None
+    registered_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RegistrationPrepareResponse(BaseModel):
+    """Returned by GET /hackathons/{id}/register-tx. transaction_b64 is None for no-escrow hackathons."""
+    transaction_b64: Optional[str] = None
+    project_id: str
+    project_record_pda: Optional[str] = None
+
+
+class RegistrationConfirmRequest(BaseModel):
+    tx_signature: Optional[str] = None   # required when hackathon has an escrow
+    project_id: str                       # must match what was returned by register-tx
+
+
+class RegistrationStatusResponse(BaseModel):
+    is_registered: bool
+    registration: Optional[HackathonRegistrationResponse] = None
+    spots_taken: int
+    spots_remaining: int
+    spots_total: int
+
+
+# ── Project submission (detail fill-in, no wallet TX) ─────────────────────────
+
+class ProjectSubmit(BaseModel):
+    name: str
+    description: str
+    demo_url: Optional[str] = None
+    repo_url: Optional[str] = None
+    tech_stack: List[str] = []
 
 
 # ── Projects ──────────────────────────────────────────────────────────────

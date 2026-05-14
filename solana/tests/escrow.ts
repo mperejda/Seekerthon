@@ -166,6 +166,23 @@ describe("escrow winner claim", () => {
     return projectRecord;
   }
 
+  async function markSubmitted(opts: {
+    escrow: PublicKey;
+    projectRecord: PublicKey;
+    hackathonId: number[];
+    projectId: number[];
+  }) {
+    await program.methods
+      .markSubmitted(opts.hackathonId, opts.projectId)
+      .accounts({
+        platformAdmin: platformAdmin.publicKey,
+        hackathonEscrow: opts.escrow,
+        projectRecord: opts.projectRecord,
+      })
+      .signers([platformAdmin])
+      .rpc();
+  }
+
   async function expectError(fn: () => Promise<unknown>, fragment: string): Promise<void> {
     try {
       await fn();
@@ -247,6 +264,8 @@ describe("escrow winner claim", () => {
     usdcMint = await createMint(provider.connection, payer, mintAuthority.publicKey, null, 6);
   });
 
+  // ── Happy path ────────────────────────────────────────────────────────────────
+
   it("registers a project and lets the certified winner claim", async () => {
     const setup = await createEscrowWithRegistrationWindow();
     const { hackathonId, prizeUsdc, votingEnd, escrow, vault } = setup;
@@ -256,9 +275,11 @@ describe("escrow winner claim", () => {
     const projectId = randomId();
     const now = await currentUnix();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
 
     const escrowState = await program.account.hackathonEscrow.fetch(escrow);
     assert.equal(escrowState.projectCount, 1);
+    assert.equal(escrowState.submittedProjectCount, 1);
 
     await waitUntilUnix(votingEnd);
 
@@ -286,32 +307,32 @@ describe("escrow winner claim", () => {
     assert.equal(Number(winnerAccount.amount), prizeUsdc);
   });
 
-  it("rejects refunds after a project is registered", async () => {
+  it("allows refund when projects are registered but not submitted", async () => {
     const setup = await createEscrowWithRegistrationWindow();
     const { organizer, organizerAta, hackathonId, votingEnd, escrow, vault } = setup;
     const teamLead = Keypair.generate();
     await fund(teamLead.publicKey);
     const projectId = randomId();
     await registerProject({ teamLead, escrow, projectId });
+    // Deliberately skip markSubmitted — registered-only must not block the refund.
 
     await waitUntilUnix(votingEnd);
 
-    await expectError(
-      () =>
-        program.methods
-          .refundEscrow(hackathonId)
-          .accounts({
-            organizer: organizer.publicKey,
-            usdcMint,
-            hackathonEscrow: escrow,
-            vault,
-            organizerUsdcAta: organizerAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
-          })
-          .signers([organizer])
-          .rpc(),
-      "ProjectsRegistered",
-    );
+    await program.methods
+      .refundEscrow(hackathonId)
+      .accounts({
+        organizer: organizer.publicKey,
+        usdcMint,
+        hackathonEscrow: escrow,
+        vault,
+        organizerUsdcAta: organizerAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([organizer])
+      .rpc();
+
+    const organizerAccount = await getAccount(provider.connection, organizerAta);
+    assert.equal(Number(organizerAccount.amount), setup.prizeUsdc);
   });
 
   it("refunds the organizer when no projects registered", async () => {
@@ -395,6 +416,7 @@ describe("escrow winner claim", () => {
     const projectId = randomId();
     const now = await currentUnix();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN(now + 10_000);
@@ -433,6 +455,7 @@ describe("escrow winner claim", () => {
     const projectId = randomId();
     const now = await currentUnix();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN(now + 10_000);
@@ -469,6 +492,7 @@ describe("escrow winner claim", () => {
     const projectId = randomId();
     const now = await currentUnix();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN(now - 1);
@@ -504,6 +528,7 @@ describe("escrow winner claim", () => {
     const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
     const projectId = randomId();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
     const nonce = randomId();
     const sigIx = claimSigIx({ signer: platformAdmin, escrow, hackathonId, projectId, winner: winner.publicKey, prizeUsdc, expiresAt, nonce });
@@ -559,6 +584,7 @@ describe("escrow winner claim", () => {
     const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
     const projectId = randomId();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const wrongPrizeUsdc = prizeUsdc - 1;
@@ -595,6 +621,7 @@ describe("escrow winner claim", () => {
     const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
     const projectId = randomId();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
@@ -644,6 +671,7 @@ describe("escrow winner claim", () => {
     const { organizer, organizerAta, hackathonId, prizeUsdc, votingEnd, escrow, vault } = setup;
     const projectId = randomId();
     const projectRecord = await registerProject({ teamLead: organizer, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
@@ -679,8 +707,10 @@ describe("escrow winner claim", () => {
     const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
     const certifiedProjectId = randomId();
     const replayProjectId = randomId();
-    await registerProject({ teamLead: winner, escrow, projectId: certifiedProjectId });
+    const certifiedRecord = await registerProject({ teamLead: winner, escrow, projectId: certifiedProjectId });
     const replayProjectRecord = await registerProject({ teamLead: winner, escrow, projectId: replayProjectId });
+    await markSubmitted({ escrow, projectRecord: certifiedRecord, hackathonId, projectId: certifiedProjectId });
+    await markSubmitted({ escrow, projectRecord: replayProjectRecord, hackathonId, projectId: replayProjectId });
     await waitUntilUnix(votingEnd);
 
     const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
@@ -725,6 +755,7 @@ describe("escrow winner claim", () => {
     const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
     const projectId = randomId();
     const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
     const wrongMint = await createMint(provider.connection, payer, mintAuthority.publicKey, null, 6);
     await waitUntilUnix(votingEnd);
 
@@ -750,6 +781,251 @@ describe("escrow winner claim", () => {
           .signers([winner])
           .rpc(),
       "InvalidMint",
+    );
+  });
+
+  // ── Security tests (OtterSec) ─────────────────────────────────────────────────
+
+  it("[security] rejects claim_prize without mark_submitted", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { hackathonId, prizeUsdc, votingEnd, escrow, vault } = setup;
+    const winner = Keypair.generate();
+    await fund(winner.publicKey);
+    const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
+    const projectId = randomId();
+    const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    // Deliberately skip markSubmitted.
+    await waitUntilUnix(votingEnd);
+
+    const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
+    const nonce = randomId();
+    const sigIx = claimSigIx({ signer: platformAdmin, escrow, hackathonId, projectId, winner: winner.publicKey, prizeUsdc, expiresAt, nonce });
+
+    await expectError(
+      () =>
+        program.methods
+          .claimPrize(hackathonId, projectId, new anchor.BN(prizeUsdc), expiresAt, nonce)
+          .preInstructions([sigIx])
+          .accounts({
+            winner: winner.publicKey,
+            usdcMint,
+            hackathonEscrow: escrow,
+            projectRecord,
+            vault,
+            winnerUsdcAta: winnerAta,
+            instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([winner])
+          .rpc(),
+      "ProjectNotSubmitted",
+    );
+  });
+
+  it("[security] rejects mark_submitted from non-admin", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { hackathonId, escrow } = setup;
+    const teamLead = Keypair.generate();
+    await fund(teamLead.publicKey);
+    const projectId = randomId();
+    const projectRecord = await registerProject({ teamLead, escrow, projectId });
+    const fakeAdmin = Keypair.generate();
+    await fund(fakeAdmin.publicKey);
+
+    await expectError(
+      () =>
+        program.methods
+          .markSubmitted(hackathonId, projectId)
+          .accounts({
+            platformAdmin: fakeAdmin.publicKey,
+            hackathonEscrow: escrow,
+            projectRecord,
+          })
+          .signers([fakeAdmin])
+          .rpc(),
+      "NotAuthorized",
+    );
+  });
+
+  it("[security] mark_submitted is idempotent and does not double-count", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { hackathonId, escrow } = setup;
+    const teamLead = Keypair.generate();
+    await fund(teamLead.publicKey);
+    const projectId = randomId();
+    const projectRecord = await registerProject({ teamLead, escrow, projectId });
+
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId }); // second call
+
+    const state = await program.account.hackathonEscrow.fetch(escrow);
+    assert.equal(state.submittedProjectCount, 1, "double mark_submitted must not increment counter twice");
+    const record = await program.account.projectRecord.fetch(projectRecord);
+    assert.isTrue(record.isSubmitted);
+  });
+
+  it("[security] rejects refund when submitted projects exist", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { organizer, organizerAta, hackathonId, votingEnd, escrow, vault } = setup;
+    const teamLead = Keypair.generate();
+    await fund(teamLead.publicKey);
+    const projectId = randomId();
+    const projectRecord = await registerProject({ teamLead, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
+
+    await waitUntilUnix(votingEnd);
+
+    await expectError(
+      () =>
+        program.methods
+          .refundEscrow(hackathonId)
+          .accounts({
+            organizer: organizer.publicKey,
+            usdcMint,
+            hackathonEscrow: escrow,
+            vault,
+            organizerUsdcAta: organizerAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([organizer])
+          .rpc(),
+      "SubmittedProjectsExist",
+    );
+  });
+
+  it("[security] rejects mark_submitted on a released escrow", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { hackathonId, prizeUsdc, votingEnd, escrow, vault } = setup;
+    const winner = Keypair.generate();
+    await fund(winner.publicKey);
+    const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
+    const winnerProjectId = randomId();
+    const winnerRecord = await registerProject({ teamLead: winner, escrow, projectId: winnerProjectId });
+    await markSubmitted({ escrow, projectRecord: winnerRecord, hackathonId, projectId: winnerProjectId });
+
+    // Register a second project but do not submit it yet.
+    const other = Keypair.generate();
+    await fund(other.publicKey);
+    const otherProjectId = randomId();
+    const otherRecord = await registerProject({ teamLead: other, escrow, projectId: otherProjectId });
+
+    await waitUntilUnix(votingEnd);
+
+    // Winner claims, releasing the escrow.
+    const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
+    const nonce = randomId();
+    const sigIx = claimSigIx({ signer: platformAdmin, escrow, hackathonId, projectId: winnerProjectId, winner: winner.publicKey, prizeUsdc, expiresAt, nonce });
+    await program.methods
+      .claimPrize(hackathonId, winnerProjectId, new anchor.BN(prizeUsdc), expiresAt, nonce)
+      .preInstructions([sigIx])
+      .accounts({
+        winner: winner.publicKey,
+        usdcMint,
+        hackathonEscrow: escrow,
+        projectRecord: winnerRecord,
+        vault,
+        winnerUsdcAta: winnerAta,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([winner])
+      .rpc();
+
+    // Attempting mark_submitted on the now-released escrow must fail.
+    await expectError(
+      () => markSubmitted({ escrow, projectRecord: otherRecord, hackathonId, projectId: otherProjectId }),
+      "AlreadyReleased",
+    );
+  });
+
+  it("[security] rejects claim with Ed25519 instruction placed after claim_prize", async () => {
+    const setup = await createEscrowWithRegistrationWindow();
+    const { hackathonId, prizeUsdc, votingEnd, escrow, vault } = setup;
+    const winner = Keypair.generate();
+    await fund(winner.publicKey);
+    const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
+    const projectId = randomId();
+    const projectRecord = await registerProject({ teamLead: winner, escrow, projectId });
+    await markSubmitted({ escrow, projectRecord, hackathonId, projectId });
+    await waitUntilUnix(votingEnd);
+
+    const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
+    const nonce = randomId();
+    // Valid signature — but placed AFTER claim_prize, so the contract cannot see it.
+    const sigIx = claimSigIx({ signer: platformAdmin, escrow, hackathonId, projectId, winner: winner.publicKey, prizeUsdc, expiresAt, nonce });
+
+    await expectError(
+      () =>
+        program.methods
+          .claimPrize(hackathonId, projectId, new anchor.BN(prizeUsdc), expiresAt, nonce)
+          .postInstructions([sigIx])
+          .accounts({
+            winner: winner.publicKey,
+            usdcMint,
+            hackathonEscrow: escrow,
+            projectRecord,
+            vault,
+            winnerUsdcAta: winnerAta,
+            instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([winner])
+          .rpc(),
+      "InvalidWinnerCertificate",
+    );
+  });
+
+  it("[security] rejects cross-escrow certificate replay", async () => {
+    // Winner holds a valid cert for escrowA but tries to claim against escrowB.
+    const setupA = await createEscrowWithRegistrationWindow();
+    const setupB = await createEscrowWithRegistrationWindow();
+    const winner = Keypair.generate();
+    await fund(winner.publicKey);
+    const winnerAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, winner.publicKey);
+
+    const projectIdA = randomId();
+    const projectIdB = randomId();
+    const recordA = await registerProject({ teamLead: winner, escrow: setupA.escrow, projectId: projectIdA });
+    const recordB = await registerProject({ teamLead: winner, escrow: setupB.escrow, projectId: projectIdB });
+    await markSubmitted({ escrow: setupA.escrow, projectRecord: recordA, hackathonId: setupA.hackathonId, projectId: projectIdA });
+    await markSubmitted({ escrow: setupB.escrow, projectRecord: recordB, hackathonId: setupB.hackathonId, projectId: projectIdB });
+
+    const laterVotingEnd = Math.max(setupA.votingEnd, setupB.votingEnd);
+    await waitUntilUnix(laterVotingEnd);
+
+    const expiresAt = new anchor.BN((await currentUnix()) + 10_000);
+    const nonce = randomId();
+    // Certificate is for escrowA / hackathonA / projectA.
+    const sigIxA = claimSigIx({
+      signer: platformAdmin,
+      escrow: setupA.escrow,
+      hackathonId: setupA.hackathonId,
+      projectId: projectIdA,
+      winner: winner.publicKey,
+      prizeUsdc: setupA.prizeUsdc,
+      expiresAt,
+      nonce,
+    });
+
+    // Attempt to use escrowA's certificate to claim escrowB's prize.
+    await expectError(
+      () =>
+        program.methods
+          .claimPrize(setupB.hackathonId, projectIdB, new anchor.BN(setupB.prizeUsdc), expiresAt, nonce)
+          .preInstructions([sigIxA])
+          .accounts({
+            winner: winner.publicKey,
+            usdcMint,
+            hackathonEscrow: setupB.escrow,
+            projectRecord: recordB,
+            vault: setupB.vault,
+            winnerUsdcAta: winnerAta,
+            instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([winner])
+          .rpc(),
+      "InvalidWinnerCertificate",
     );
   });
 });
