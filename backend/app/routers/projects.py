@@ -7,25 +7,28 @@ from app.db import get_supabase_admin
 from app.models.schemas import (
     ProjectSubmit, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest,
     AssetUploadUrlRequest, AssetUploadUrlResponse, AssetConfirmRequest, AssetConfirmResponse,
+    SubmitTxResponse, SubmitConfirmRequest,
 )
-from app.services.solana_service import send_mark_submitted_transaction
+from app.services.solana_service import (
+    build_mark_submitted_transaction,
+    derive_project_record_pda,
+    verify_program_transaction_on_chain,
+)
 from app.services import r2_service
 
 router = APIRouter()
 
 
-@router.patch("/{project_id}/submit", response_model=ProjectResponse)
+@router.patch("/{project_id}/submit", response_model=SubmitTxResponse)
 async def submit_project_details(project_id: str, body: ProjectSubmit, request: Request):
     """
-    Fill in project details for a registered project (no wallet transaction needed).
+    Save project details and, for escrow hackathons, return a partially-signed
+    mark_submitted transaction for the user to sign.  The user is the fee payer so
+    the backend wallet never needs SOL.  Call POST /submit/confirm with the
+    resulting signature to finalize status → 'submitted'.
 
-    The project must be in 'registered' status (created during hackathon registration).
-    After this call the project becomes 'submitted' and appears on the leaderboard.
-
-    Prize eligibility is enforced by two on-chain checks inside claim_prize:
-      1. The ProjectRecord PDA must exist (set at registration time — the allowlist check).
-      2. The platform admin must have signed the claim certificate, which the backend
-         only issues for projects with status='submitted' and a confirmed on-chain PDA.
+    For non-escrow hackathons the project is marked submitted immediately and
+    transaction_b64 is null.
     """
     db = get_supabase_admin()
 
@@ -57,30 +60,64 @@ async def submit_project_details(project_id: str, body: ProjectSubmit, request: 
 
     escrow_pubkey = h.get("escrow_pubkey")
 
+    # For escrow hackathons keep status='registered' until the on-chain tx is confirmed.
+    new_status = "registered" if escrow_pubkey else "submitted"
     result = db.table("projects").update({
         "name": body.name.strip(),
         "description": body.description,
         "demo_url": body.demo_url,
         "repo_url": body.repo_url,
         "tech_stack": body.tech_stack,
-        "status": "submitted",
+        "status": new_status,
     }).eq("id", project_id).execute()
 
-    if escrow_pubkey:
-        try:
-            await send_mark_submitted_transaction(
-                hackathon_id_str=p["hackathon_id"],
-                escrow_pda=escrow_pubkey,
-                project_id_str=project_id,
-            )
-        except Exception as exc:
-            # Roll back the DB update so DB and chain stay in sync.
-            db.table("projects").update({"status": "registered"}).eq("id", project_id).execute()
-            raise HTTPException(
-                status_code=500,
-                detail=f"On-chain mark_submitted failed — please retry: {exc}",
-            )
+    proj = ProjectResponse(**result.data[0])
 
+    if not escrow_pubkey:
+        return SubmitTxResponse(project=proj)
+
+    tx_b64 = await build_mark_submitted_transaction(
+        user_wallet=request.state.wallet_address,
+        hackathon_id_str=p["hackathon_id"],
+        escrow_pda=escrow_pubkey,
+        project_id_str=project_id,
+    )
+    return SubmitTxResponse(transaction_b64=tx_b64, project=proj)
+
+
+@router.post("/{project_id}/submit/confirm", response_model=ProjectResponse)
+async def confirm_submit(project_id: str, body: SubmitConfirmRequest, request: Request):
+    """
+    Verify the mark_submitted transaction landed on-chain and flip the project
+    to 'submitted' so it appears on the leaderboard.
+    """
+    db = get_supabase_admin()
+
+    project = db.table("projects").select("*").eq("id", project_id).single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    p = project.data
+
+    if str(p["team_lead_id"]) != request.state.user_id:
+        raise HTTPException(status_code=403, detail="Not the project owner")
+    if p["status"] != "registered":
+        raise HTTPException(status_code=409, detail=f"Project is already '{p['status']}'")
+
+    hackathon = db.table("hackathons").select("escrow_pubkey").eq("id", p["hackathon_id"]).single().execute()
+    escrow_pubkey = hackathon.data.get("escrow_pubkey") if hackathon.data else None
+
+    if escrow_pubkey:
+        project_record_pda = derive_project_record_pda(escrow_pubkey, project_id)
+        verified = await verify_program_transaction_on_chain(
+            body.tx_signature,
+            request.state.wallet_address,
+            [escrow_pubkey, project_record_pda],
+            "mark_submitted",
+        )
+        if not verified:
+            raise HTTPException(status_code=400, detail="mark_submitted not confirmed on-chain — please retry")
+
+    result = db.table("projects").update({"status": "submitted"}).eq("id", project_id).execute()
     return ProjectResponse(**result.data[0])
 
 

@@ -167,7 +167,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     if (!projectId) return;
 
     try {
-      setStepStatus("Submitting project details…");
+      setStepStatus("Saving project details…");
       const res = await fetch(`${API}/projects/${projectId}/submit`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -180,6 +180,28 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         }),
       });
       if (!res.ok) throw new Error((await res.json()).detail);
+      const { transaction_b64 } = await res.json();
+
+      if (transaction_b64) {
+        if (!signTransaction) throw new Error("Wallet does not support transaction signing");
+        setStepStatus("Waiting for wallet approval…");
+        const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
+        const tx = Transaction.from(txBytes);
+        const signed = await signTransaction(tx);
+        setStepStatus("Confirming on-chain…");
+        const txSig = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        await connection.confirmTransaction(txSig, "confirmed");
+        setStepStatus("Finalizing submission…");
+        const confirmRes = await fetch(`${API}/projects/${projectId}/submit/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ tx_signature: txSig }),
+        });
+        if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+      }
 
       if (videoFile) {
         setStepStatus("Requesting upload URL…");

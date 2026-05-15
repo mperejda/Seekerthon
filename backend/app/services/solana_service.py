@@ -1491,19 +1491,20 @@ async def verify_escrow_account_on_chain(
     )
 
 
-async def send_mark_submitted_transaction(
+async def build_mark_submitted_transaction(
+    user_wallet: str,
     hackathon_id_str: str,
     escrow_pda: str,
     project_id_str: str,
 ) -> str:
     """
-    Platform admin marks a project as submitted on-chain.
-    Called server-side when the team fills in project details — no user wallet needed.
-    Sets project_record.is_submitted = true and increments escrow.submitted_project_count.
-    Returns the confirmed transaction signature.
+    Build a mark_submitted transaction for the user to sign as fee payer.
+    Platform admin co-signs as authority only — no SOL needed in the backend wallet.
+    Returns a base64-encoded partially-signed transaction.
     """
     platform_admin_kp = _escrow_platform_admin_keypair()
     platform_admin = platform_admin_kp.pubkey()
+    user = Pubkey.from_string(user_wallet)
     escrow = Pubkey.from_string(escrow_pda)
     escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
     hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
@@ -1526,31 +1527,6 @@ async def send_mark_submitted_transaction(
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
-    msg = Message.new_with_blockhash([instruction], platform_admin, recent_blockhash)
+    msg = Message.new_with_blockhash([instruction], user, recent_blockhash)
     tx = Transaction([platform_admin_kp], msg, recent_blockhash)
-    tx_b64 = base64.b64encode(bytes(tx)).decode()
-
-    resp = await _rpc_post(
-        "sendTransaction",
-        [tx_b64, {"encoding": "base64", "skipPreflight": False, "preflightCommitment": "confirmed"}],
-    )
-    if "error" in resp:
-        raise Exception(f"mark_submitted send failed: {resp['error']}")
-    sig = resp["result"]
-    _log.info("mark_submitted submitted for project=%s sig=%s", project_id_str, sig)
-
-    for _ in range(30):
-        await asyncio.sleep(2)
-        conf = await _rpc_post(
-            "getSignatureStatuses",
-            [[sig], {"searchTransactionHistory": True}],
-        )
-        status = ((conf.get("result") or {}).get("value") or [None])[0]
-        if status:
-            if status.get("err") is not None:
-                raise Exception(f"mark_submitted tx failed on-chain: {status['err']}")
-            if status.get("confirmationStatus") in ("confirmed", "finalized"):
-                _log.info("mark_submitted confirmed for project=%s", project_id_str)
-                return sig
-
-    raise Exception(f"mark_submitted not confirmed within 60s for project={project_id_str}")
+    return base64.b64encode(bytes(tx)).decode()

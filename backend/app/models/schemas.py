@@ -158,7 +158,7 @@ class RegistrationStatusResponse(BaseModel):
     spots_total: int
 
 
-# ── Project submission (detail fill-in, no wallet TX) ─────────────────────────
+# ── Project submission ────────────────────────────────────────────────────────
 
 class ProjectSubmit(BaseModel):
     name: str
@@ -197,6 +197,15 @@ class ProjectResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SubmitTxResponse(BaseModel):
+    transaction_b64: Optional[str] = None
+    project: ProjectResponse
+
+
+class SubmitConfirmRequest(BaseModel):
+    tx_signature: str
 
 
 # ── Assets ─────────────────────────────────────────────────────────────────
