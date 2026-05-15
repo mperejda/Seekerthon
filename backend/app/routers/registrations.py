@@ -178,11 +178,11 @@ async def get_registration_status(hackathon_id: str, request: Request):
         my_reg = db.table("hackathon_registrations").select("*") \
             .eq("hackathon_id", hackathon_id) \
             .eq("user_id", user_id) \
-            .maybe_single() \
+            .limit(1) \
             .execute()
         if my_reg.data:
             is_registered = True
-            reg_obj = HackathonRegistrationResponse(**my_reg.data)
+            reg_obj = HackathonRegistrationResponse(**my_reg.data[0])
 
     return RegistrationStatusResponse(
         is_registered=is_registered,
