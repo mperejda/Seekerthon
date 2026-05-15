@@ -37,3 +37,12 @@ def generate_upload_url(project_id: str, filename: str, content_type: str) -> tu
 
 def key_to_public_url(key: str) -> str:
     return f"{get_settings().r2_public_url.rstrip('/')}/{key}"
+
+
+def delete_object(key: str) -> None:
+    _client().delete_object(Bucket=get_settings().r2_bucket_name, Key=key)
+
+
+def download_bytes(key: str) -> bytes:
+    resp = _client().get_object(Bucket=get_settings().r2_bucket_name, Key=key)
+    return resp["Body"].read()

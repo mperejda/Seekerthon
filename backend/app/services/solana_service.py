@@ -1280,7 +1280,8 @@ async def build_register_project_transaction(
         [b"project", bytes(escrow), project_id_bytes],
         escrow_program,
     )
-    instruction = Instruction(
+
+    register_ix = Instruction(
         program_id=escrow_program,
         accounts=[
             AccountMeta(pubkey=team_lead, is_signer=True, is_writable=True),
@@ -1290,9 +1291,46 @@ async def build_register_project_transaction(
         ],
         data=_anchor_discriminator("register_project") + project_id_bytes,
     )
+
+    instructions = []
+
+    fee = _settings.registration_fee_usdc
+    if fee > 0 and _settings.builder_pass_treasury:
+        usdc_mint_pk = Pubkey.from_string(ESCROW_USDC_MINT)
+        treasury_pk = Pubkey.from_string(_settings.builder_pass_treasury)
+        team_lead_ata = _find_ata(team_lead, usdc_mint_pk)
+        treasury_ata = _find_ata(treasury_pk, usdc_mint_pk)
+
+        # Idempotent create treasury ATA (no-op if already exists)
+        instructions.append(Instruction(
+            program_id=ASSOCIATED_TOKEN_PROGRAM,
+            accounts=[
+                AccountMeta(pubkey=team_lead, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=treasury_ata, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=treasury_pk, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+            ],
+            data=bytes([1]),
+        ))
+
+        # USDC transfer: team_lead → treasury
+        instructions.append(Instruction(
+            program_id=TOKEN_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=team_lead_ata, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=treasury_ata, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=team_lead, is_signer=True, is_writable=False),
+            ],
+            data=bytes([3]) + struct.pack("<Q", fee),
+        ))
+
+    instructions.append(register_ix)
+
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
-    msg = Message.new_with_blockhash([instruction], team_lead, recent_blockhash)
+    msg = Message.new_with_blockhash(instructions, team_lead, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
     return base64.b64encode(bytes(tx)).decode(), str(project_record)
 

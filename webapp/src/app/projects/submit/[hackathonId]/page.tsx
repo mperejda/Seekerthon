@@ -239,7 +239,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         });
         if (!putRes.ok) throw new Error("Video upload failed");
 
-        setStepStatus("Saving video…");
+        setStepStatus("Verifying video content…");
         const confirmRes = await fetch(`${API}/projects/${projectId}/video-confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -349,8 +349,11 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           disabled={loading || !publicKey}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
         >
-          {stepStatus ?? (loading ? "Registering…" : "Lock In My Spot")}
+          {stepStatus ?? (loading ? "Registering…" : "Lock In My Spot — $2 USDC")}
         </button>
+        <p className="text-xs text-gray-400 mt-2 text-center">
+          A $2 USDC registration fee covers content moderation and platform costs.
+        </p>
         {!publicKey && (
           <p className="text-xs text-gray-400 mt-2 text-center">Connect your wallet above to register.</p>
         )}

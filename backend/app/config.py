@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     builder_pass_price_usdc: int = 10_000_000   # $10 USDC (6 decimals); set to 0 to disable payment
     builder_pass_sol_fee_lamports: int = 0  # Deprecated: buyers now pay SOL mint costs directly
 
+    # Registration fee (USDC, 6 decimals) collected at hackathon sign-up; goes to builder_pass_treasury
+    registration_fee_usdc: int = 2_000_000  # $2.00 USDC; set to 0 to disable
+
+    # AWS Rekognition — separate IAM credentials from Cloudflare R2
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = "us-east-1"
+
     class Config:
         env_file = ".env"
 
