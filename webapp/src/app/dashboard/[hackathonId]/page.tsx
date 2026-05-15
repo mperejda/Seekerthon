@@ -7,9 +7,25 @@ const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
   { ssr: false }
 );
-import { Transaction } from "@solana/web3.js";
+import { Transaction, SendTransactionError } from "@solana/web3.js";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+
+async function extractTxError(err: unknown, connection: import("@solana/web3.js").Connection): Promise<string> {
+  if (err instanceof SendTransactionError) {
+    let logs: string[] | null = null;
+    try { logs = await err.getLogs(connection); } catch { logs = err.logs ?? null; }
+    if (logs) {
+      const anchor = logs.find((l) => l.includes("AnchorError") || l.includes("Error Message:"));
+      if (anchor) {
+        const match = anchor.match(/Error Message: (.+)$/);
+        if (match) return match[1];
+      }
+    }
+    return err.message;
+  }
+  return (err as any)?.message ?? String(err);
+}
 
 interface Hackathon {
   organizer_id: string;
@@ -154,7 +170,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       setHackathon(await confirmRes.json());
       setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, status: "winner" } : p)));
     } catch (err: any) {
-      setError(err.message);
+      setError(await extractTxError(err, connection));
     } finally {
       setClaiming(null);
     }
@@ -185,7 +201,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
       setHackathon(await confirmRes.json());
     } catch (err: any) {
-      setError(err.message);
+      setError(await extractTxError(err, connection));
     } finally {
       setRefunding(false);
     }
