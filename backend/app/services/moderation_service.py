@@ -79,4 +79,5 @@ async def is_video_safe(r2_key: str) -> bool:
             _log.error("moderation: rekognition error frame=%d key=%s err=%s", i, r2_key, exc)
             return False
 
+    _log.info("moderation: PASSED %d frames scanned key=%s", len(frames), r2_key)
     return True
