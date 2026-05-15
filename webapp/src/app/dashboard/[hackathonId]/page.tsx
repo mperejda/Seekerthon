@@ -66,7 +66,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function ResultsDashboard({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
   const user = useUser();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -140,7 +140,9 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       const { transaction_b64 } = await prepRes.json();
       const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
       const tx = Transaction.from(txBytes);
-      const txSignature = await sendTransaction(tx, connection, { skipPreflight: false });
+      if (!signTransaction) throw new Error("Wallet does not support signing");
+      const signed = await signTransaction(tx);
+      const txSignature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
       await connection.confirmTransaction(txSignature, "confirmed");
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}`, {
@@ -170,7 +172,9 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       const { transaction_b64 } = await prepRes.json();
       const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
       const tx = Transaction.from(txBytes);
-      const txSignature = await sendTransaction(tx, connection, { skipPreflight: false });
+      if (!signTransaction) throw new Error("Wallet does not support signing");
+      const signed = await signTransaction(tx);
+      const txSignature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
       await connection.confirmTransaction(txSignature, "confirmed");
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
