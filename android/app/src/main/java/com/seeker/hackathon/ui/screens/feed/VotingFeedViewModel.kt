@@ -12,7 +12,9 @@ import com.seeker.hackathon.data.remote.SeekerApi
 import com.seeker.hackathon.data.remote.VoteConfirmRequestDto
 import com.seeker.hackathon.data.remote.VotePrepareRequestDto
 import com.seeker.hackathon.data.repository.WalletRepository
+import com.seeker.hackathon.domain.model.Hackathon
 import com.seeker.hackathon.domain.model.Project
+import com.seeker.hackathon.util.toHackathon
 import com.seeker.hackathon.util.toProject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +27,7 @@ import javax.inject.Inject
 
 data class FeedUiState(
     val projects: List<Project> = emptyList(),
+    val hackathon: Hackathon? = null,
     val currentIndex: Int = 0,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -64,7 +67,8 @@ class VotingFeedViewModel @Inject constructor(
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
                 val projects = api.listProjects(hackathonId).map { it.toProject() }
-                _state.value = _state.value.copy(projects = projects, isLoading = false)
+                val hackathon = try { api.getHackathon(hackathonId).toHackathon() } catch (_: Exception) { null }
+                _state.value = _state.value.copy(projects = projects, hackathon = hackathon, isLoading = false)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isLoading = false,

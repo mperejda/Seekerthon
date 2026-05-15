@@ -39,9 +39,12 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import androidx.browser.customtabs.CustomTabsIntent
+import com.seeker.hackathon.domain.model.Hackathon
 import com.seeker.hackathon.domain.model.Project
 import com.seeker.hackathon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -94,6 +97,7 @@ fun VotingFeedScreen(
                             project = project,
                             isVoted = state.votedProjectIds.contains(project.id),
                             isVoting = state.votingProjectId == project.id,
+                            isActive = index == listState.firstVisibleItemIndex,
                             userMultiplier = state.userMultiplier,
                             isSeekerVerified = state.isSeekerVerified,
                             onVote = { viewModel.castVote(project.id, activityResultSender) },
@@ -133,7 +137,7 @@ fun VotingFeedScreen(
                 }
             }
 
-            // Top overlay: hackathon name + vote power badge
+            // Top overlay: voting deadline + vote power badge
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -145,6 +149,7 @@ fun VotingFeedScreen(
                 if (state.isSeekerVerified) {
                     SeekerBadge()
                 }
+                state.hackathon?.let { VotingDeadlineChip(it) }
                 Spacer(Modifier.weight(1f))
                 VotePowerChip(multiplier = state.userMultiplier)
             }
@@ -467,6 +472,7 @@ private fun ProjectCard(
     project: Project,
     isVoted: Boolean,
     isVoting: Boolean,
+    isActive: Boolean,
     userMultiplier: Double,
     isSeekerVerified: Boolean,
     onVote: () -> Unit,
@@ -480,6 +486,7 @@ private fun ProjectCard(
         when {
             project.videoUrl != null -> VideoPlayer(
                 url = project.videoUrl,
+                isActive = isActive,
                 modifier = Modifier.fillMaxSize(),
             )
             youtubeId != null -> YouTubeThumbnail(
@@ -495,6 +502,7 @@ private fun ProjectCard(
             )
             project.demoUrl?.endsWith(".mp4") == true || project.demoUrl?.contains("video") == true -> VideoPlayer(
                 url = project.demoUrl!!,
+                isActive = isActive,
                 modifier = Modifier.fillMaxSize(),
             )
             project.storageAssetIds.isNotEmpty() -> AsyncImage(
@@ -722,7 +730,7 @@ private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modi
 }
 
 @Composable
-private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
+private fun VideoPlayer(url: String, isActive: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(true) }
     val exoPlayer = remember {
@@ -733,6 +741,10 @@ private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
             prepare()
             playWhenReady = true
         }
+    }
+
+    LaunchedEffect(isActive) {
+        exoPlayer.playWhenReady = isActive && isPlaying
     }
 
     DisposableEffect(Unit) {
@@ -759,8 +771,33 @@ private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .clickable {
                     isPlaying = !isPlaying
-                    exoPlayer.playWhenReady = isPlaying
+                    exoPlayer.playWhenReady = isActive && isPlaying
                 }
+        )
+    }
+}
+
+private val VOTING_TIME_FMT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM d · h:mm a").withZone(ZoneId.systemDefault())
+
+@Composable
+private fun VotingDeadlineChip(hackathon: Hackathon) {
+    val now = remember { java.time.Instant.now() }
+    val label = when {
+        now.isBefore(hackathon.votingStart) -> "Voting starts ${VOTING_TIME_FMT.format(hackathon.votingStart)}"
+        now.isBefore(hackathon.votingEnd)   -> "Voting ends ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
+        else                                -> "Voting ended ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
+    }
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Black.copy(alpha = 0.55f),
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }
