@@ -47,7 +47,7 @@ def _mint_ledger_row(db, mint_pubkey: str, mint_tx_signature: str) -> dict | Non
         .maybe_single()
         .execute()
     )
-    if by_sig.data:
+    if by_sig is not None and by_sig.data:
         return by_sig.data
 
     by_mint = (
@@ -57,7 +57,7 @@ def _mint_ledger_row(db, mint_pubkey: str, mint_tx_signature: str) -> dict | Non
         .maybe_single()
         .execute()
     )
-    if by_mint.data:
+    if by_mint is not None and by_mint.data:
         return by_mint.data
     return None
 
