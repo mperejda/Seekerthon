@@ -250,7 +250,7 @@ private fun HackathonCard(
     selectedList: HackathonListFilter,
     onClick: () -> Unit,
 ) {
-    val formatter = DateTimeFormatter.ofPattern("MMM d").withZone(ZoneId.systemDefault())
+    val formatter = DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault())
 
     Card(
         modifier = Modifier
