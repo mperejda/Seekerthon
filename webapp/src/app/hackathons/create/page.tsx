@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import dynamic from "next/dynamic";
@@ -9,6 +9,7 @@ const WalletMultiButton = dynamic(
 );
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const ACTIVE_STATUSES = new Set(["draft", "open", "voting", "verifying"]);
 
 export default function CreateHackathonPage() {
   const { publicKey } = useWallet();
@@ -22,6 +23,17 @@ export default function CreateHackathonPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeHackathon, setActiveHackathon] = useState<{ title: string } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/hackathons/`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((list: { status: string; title: string }[]) => {
+        const active = list.find((h) => ACTIVE_STATUSES.has(h.status));
+        if (active) setActiveHackathon(active);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +71,15 @@ export default function CreateHackathonPage() {
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
       <h1 className="text-3xl font-bold mb-8">Create Hackathon</h1>
+
+      {activeHackathon && (
+        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
+          <p className="font-medium">A hackathon is currently ongoing</p>
+          <p className="text-sm mt-1">
+            <span className="font-semibold">{activeHackathon.title}</span> must finish before a new one can be created.
+          </p>
+        </div>
+      )}
 
       {!publicKey && (
         <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -135,7 +156,7 @@ export default function CreateHackathonPage() {
 
         <button
           type="submit"
-          disabled={!publicKey || loading}
+          disabled={!publicKey || loading || !!activeHackathon}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? "Creating..." : "Create Hackathon"}
