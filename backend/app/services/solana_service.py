@@ -306,7 +306,7 @@ async def verify_nft_collection(mint_pk_str: str) -> None:
             AccountMeta(pubkey=collection_metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=collection_edition_pda, is_signer=False, is_writable=False),
         ],
-        data=bytes([18]),  # VerifyCollection
+        data=bytes([30]),  # VerifySizedCollectionItem (sized collections require 30, not 18)
     )
 
     try:

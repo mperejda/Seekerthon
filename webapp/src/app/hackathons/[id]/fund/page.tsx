@@ -125,7 +125,7 @@ export default function FundEscrowPage({ params }: { params: Promise<{ id: strin
       <h1 className="text-3xl font-bold mb-2">Fund Escrow</h1>
       <p className="text-gray-500 mb-8">
         Deposit the prize pool on-chain to open your hackathon for project submissions.
-        Funds are held in a trustless escrow vault and released only when you verify the winner.
+        Funds are held in an escrow vault and released only when you verify the winner.
       </p>
 
       {!publicKey && (
@@ -162,15 +162,8 @@ export default function FundEscrowPage({ params }: { params: Promise<{ id: strin
 
           <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700 mb-6">
             Your wallet will prompt you to sign one transaction that creates the escrow vault and
-            transfers {prizeUsdc.toLocaleString("en-US")} USDC. A refund instruction is available
-            before voting starts if you need to cancel.
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-6">
-            <strong>Phantom users:</strong> Phantom may show a &ldquo;transaction may fail&rdquo; warning for
-            this transaction. This is a false positive — Phantom&rsquo;s devnet simulation uses a
-            different RPC than our backend. The transaction has been pre-validated and is safe
-            to approve. Click <strong>Approve</strong> to proceed.
+            transfers {prizeUsdc.toLocaleString("en-US")} USDC. A refund is only available if no
+            projects have been submitted.
           </div>
 
           {hackathon.status !== "draft" ? (
