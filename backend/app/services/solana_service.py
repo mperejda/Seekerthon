@@ -537,7 +537,7 @@ async def build_partial_signed_mint_transaction(
             AccountMeta(pubkey=collection_metadata_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=collection_edition_pda, is_signer=False, is_writable=False),
         ],
-        data=bytes([18]),
+        data=bytes([30]),  # VerifySizedCollectionItem — sized collections require 30 not 18
     )
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
