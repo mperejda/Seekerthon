@@ -13,32 +13,34 @@ logging.basicConfig(
 
 _settings = get_settings()
 
-app = FastAPI(
+api = FastAPI(
     title="Seeker Hackathon API",
     description="Backend for the Seeker Hackathon voting platform",
     version="1.0.0",
 )
 
-app.add_middleware(AuthMiddleware)
-app.add_middleware(
-    CORSMiddleware,
+api.add_middleware(AuthMiddleware)
+
+api.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+api.include_router(hackathons.router, prefix="/api/v1/hackathons", tags=["hackathons"])
+api.include_router(registrations.router, prefix="/api/v1/hackathons", tags=["registrations"])
+api.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
+api.include_router(votes.router, prefix="/api/v1/votes", tags=["votes"])
+api.include_router(mint.router, prefix="/api/v1/mint", tags=["mint"])
+
+
+@api.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+app = CORSMiddleware(
+    api,
     allow_origins=_settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(hackathons.router, prefix="/api/v1/hackathons", tags=["hackathons"])
-app.include_router(registrations.router, prefix="/api/v1/hackathons", tags=["registrations"])
-app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
-app.include_router(votes.router, prefix="/api/v1/votes", tags=["votes"])
-app.include_router(mint.router, prefix="/api/v1/mint", tags=["mint"])
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
 
 
 if __name__ == "__main__":

@@ -24,6 +24,15 @@ interface RegistrationStatus {
   spots_total: number;
 }
 
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
 function submissionsOpen(h: Hackathon): boolean {
   return h.status === "open" && new Date() < new Date(h.voting_start);
 }
@@ -65,19 +74,44 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const token = typeof window !== "undefined" ? localStorage.getItem("seeker_token") : null;
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API}/hackathons/${hackathonId}`).then((r) => r.json()),
-      token
-        ? fetch(`${API}/hackathons/${hackathonId}/registration`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }).then((r) => r.json())
-        : Promise.resolve(null),
-    ])
-      .then(([h, reg]) => {
+    let cancelled = false;
+
+    async function loadStatus() {
+      setStatusLoading(true);
+      setError(null);
+      try {
+        const h = await fetchJson<Hackathon>(`${API}/hackathons/${hackathonId}`);
+        if (cancelled) return;
         setHackathon(h);
-        setRegStatus(reg);
-      })
-      .finally(() => setStatusLoading(false));
+
+        if (!token) {
+          setRegStatus(null);
+          return;
+        }
+
+        try {
+          const reg = await fetchJson<RegistrationStatus>(`${API}/hackathons/${hackathonId}/registration`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!cancelled) setRegStatus(reg);
+        } catch (err) {
+          console.error("Failed to load registration status", err);
+          if (!cancelled) {
+            setRegStatus(null);
+            setError("Could not load your registration status. You can refresh or try again in a moment.");
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err.message ?? "Failed to load hackathon");
+      } finally {
+        if (!cancelled) setStatusLoading(false);
+      }
+    }
+
+    loadStatus();
+    return () => {
+      cancelled = true;
+    };
   }, [hackathonId, token]);
 
   const handleRegister = async () => {
@@ -199,12 +233,22 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     );
   }
 
-  if (!hackathon || !submissionsOpen(hackathon)) {
+  if (!hackathon) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <h2 className="text-2xl font-bold mb-2">Hackathon unavailable</h2>
+        <p className="text-gray-500">{error ?? "Hackathon not found."}</p>
+        <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+      </div>
+    );
+  }
+
+  if (!submissionsOpen(hackathon)) {
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
         <div className="text-5xl mb-4">🔒</div>
         <h2 className="text-2xl font-bold mb-2">Submissions closed</h2>
-        <p className="text-gray-500">{hackathon ? closedReason(hackathon) : "Hackathon not found."}</p>
+        <p className="text-gray-500">{closedReason(hackathon)}</p>
         <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );
