@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import androidx.browser.customtabs.CustomTabsIntent
@@ -723,11 +724,12 @@ private fun YouTubeThumbnail(videoId: String, onPlay: () -> Unit, modifier: Modi
 @Composable
 private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(true) }
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(url))
             repeatMode = ExoPlayer.REPEAT_MODE_ALL
-            volume = 0f
+            volume = 1f
             prepare()
             playWhenReady = true
         }
@@ -737,17 +739,28 @@ private fun VideoPlayer(url: String, modifier: Modifier = Modifier) {
         onDispose { exoPlayer.release() }
     }
 
-    AndroidView(
-        factory = {
-            PlayerView(it).apply {
-                player = exoPlayer
-                useController = false
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-            }
-        },
-        modifier = modifier,
-    )
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable {
+                    isPlaying = !isPlaying
+                    exoPlayer.playWhenReady = isPlaying
+                }
+        )
+    }
 }
