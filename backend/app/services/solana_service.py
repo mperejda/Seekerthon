@@ -1528,5 +1528,6 @@ async def build_mark_submitted_transaction(
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
     msg = Message.new_with_blockhash([instruction], user, recent_blockhash)
-    tx = Transaction([platform_admin_kp], msg, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    tx.partial_sign([platform_admin_kp], recent_blockhash)
     return base64.b64encode(bytes(tx)).decode()

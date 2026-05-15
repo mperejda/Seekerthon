@@ -76,12 +76,16 @@ async def submit_project_details(project_id: str, body: ProjectSubmit, request: 
     if not escrow_pubkey:
         return SubmitTxResponse(project=proj)
 
-    tx_b64 = await build_mark_submitted_transaction(
-        user_wallet=request.state.wallet_address,
-        hackathon_id_str=p["hackathon_id"],
-        escrow_pda=escrow_pubkey,
-        project_id_str=project_id,
-    )
+    try:
+        tx_b64 = await build_mark_submitted_transaction(
+            user_wallet=request.state.wallet_address,
+            hackathon_id_str=p["hackathon_id"],
+            escrow_pda=escrow_pubkey,
+            project_id_str=project_id,
+        )
+    except BaseException as exc:
+        db.table("projects").update({"status": "registered"}).eq("id", project_id).execute()
+        raise HTTPException(status_code=500, detail=f"Failed to build submit transaction — please retry: {exc}")
     return SubmitTxResponse(transaction_b64=tx_b64, project=proj)
 
 
