@@ -268,23 +268,24 @@ private fun HackathonCard(
                 StatusChip(selectedList = selectedList)
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Outlined.EmojiEvents, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        "$%.2f USDC".format(hackathon.prizeUsdc / 1_000_000.0),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Outlined.Timer, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "Voting ${formatter.format(hackathon.votingStart)}–${formatter.format(hackathon.votingEnd)}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Outlined.EmojiEvents, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "$%.2f USDC".format(hackathon.prizeUsdc / 1_000_000.0),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Outlined.Timer, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "Voting ${formatter.format(hackathon.votingStart)}–${formatter.format(hackathon.votingEnd)}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Spacer(Modifier.height(4.dp))
             Text(
