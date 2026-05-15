@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Query
 from typing import List, Optional
 from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
@@ -8,6 +8,8 @@ from app.models.schemas import (
     HackathonStatus, LeaderboardEntry, ProjectResponse,
     ClaimTxResponse, ReleaseTxResponse, VerifyReleaseRequest,
 )
+import logging
+from app.services import r2_service as _r2
 from app.services.solana_service import (
     build_create_escrow_transaction,
     build_claim_prize_transaction,
@@ -18,6 +20,8 @@ from app.services.solana_service import (
 
 router = APIRouter()
 
+
+_log = logging.getLogger(__name__)
 
 ACTIVE_HACKATHON_STATUSES = ("draft", "open", "voting", "verifying")
 ACTIVE_HACKATHON_ERROR = "A hackathon is already active. Complete it before creating a new one."
@@ -40,6 +44,26 @@ def _submitted_project_count(db, hackathon_id: str) -> int:
         .in_("status", ["submitted", "approved", "winner"]) \
         .execute()
     return result.count or 0
+
+
+def _purge_hackathon_videos(hackathon_id: str) -> None:
+    """Delete all R2 video objects for a completed hackathon and clear video_url in DB."""
+    db = get_supabase_admin()
+    projects = db.table("projects").select("id,video_url") \
+        .eq("hackathon_id", hackathon_id) \
+        .not_.is_("video_url", "null") \
+        .execute()
+    deleted = 0
+    for p in projects.data or []:
+        key = _r2.url_to_key(p.get("video_url") or "")
+        if key:
+            try:
+                _r2.delete_object(key)
+                deleted += 1
+            except Exception as exc:
+                _log.warning("purge: failed to delete key=%s err=%s", key, exc)
+    db.table("projects").update({"video_url": None}).eq("hackathon_id", hackathon_id).execute()
+    _log.info("purge: deleted %d R2 videos for hackathon %s", deleted, hackathon_id)
 
 
 def _assert_no_other_active_hackathon(db, exclude_id: str | None = None) -> None:
@@ -239,6 +263,7 @@ async def verify_and_refund(
     hackathon_id: str,
     body: VerifyReleaseRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ):
     """
     Organizer confirms a no-submissions refund after signing the release transaction.
@@ -273,6 +298,7 @@ async def verify_and_refund(
             raise HTTPException(status_code=400, detail="Refund transaction not confirmed on-chain")
 
     result = db.table("hackathons").update({"status": "completed"}).eq("id", hackathon_id).execute()
+    background_tasks.add_task(_purge_hackathon_videos, hackathon_id)
     return HackathonResponse(**result.data[0])
 
 
@@ -318,6 +344,7 @@ async def confirm_claim(
     project_id: str,
     body: VerifyReleaseRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ):
     """Confirm the winner's on-chain claim and mark the hackathon complete."""
     if not body.tx_signature:
@@ -344,6 +371,7 @@ async def confirm_claim(
 
     db.table("projects").update({"status": "winner"}).eq("id", project_id).execute()
     updated = db.table("hackathons").update({"status": "completed"}).eq("id", hackathon_id).execute()
+    background_tasks.add_task(_purge_hackathon_videos, hackathon_id)
     return HackathonResponse(**updated.data[0])
 
 

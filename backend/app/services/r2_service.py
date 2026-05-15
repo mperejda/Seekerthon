@@ -39,6 +39,12 @@ def key_to_public_url(key: str) -> str:
     return f"{get_settings().r2_public_url.rstrip('/')}/{key}"
 
 
+def url_to_key(url: str) -> str | None:
+    """Extract the R2 object key from a public CDN URL, or None if not an R2 URL."""
+    prefix = get_settings().r2_public_url.rstrip("/") + "/"
+    return url[len(prefix):] if url.startswith(prefix) else None
+
+
 def delete_object(key: str) -> None:
     _client().delete_object(Bucket=get_settings().r2_bucket_name, Key=key)
 
