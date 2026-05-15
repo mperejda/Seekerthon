@@ -17,6 +17,10 @@ interface Registration {
   project_id: string;
 }
 
+interface Project {
+  status: string;
+}
+
 interface RegistrationStatus {
   is_registered: boolean;
   registration: Registration | null;
@@ -93,7 +97,21 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           const reg = await fetchJson<RegistrationStatus>(`${API}/hackathons/${hackathonId}/registration`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (!cancelled) setRegStatus(reg);
+          if (cancelled) return;
+          setRegStatus(reg);
+
+          if (reg.is_registered && reg.registration?.project_id) {
+            try {
+              const proj = await fetchJson<Project>(`${API}/projects/${reg.registration.project_id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!cancelled && ["submitted", "approved", "winner"].includes(proj.status)) {
+                setDone("submitted");
+              }
+            } catch {
+              // project fetch failing shouldn't block the page
+            }
+          }
         } catch (err) {
           console.error("Failed to load registration status", err);
           if (!cancelled) {
