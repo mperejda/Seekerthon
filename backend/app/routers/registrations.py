@@ -2,6 +2,7 @@ import uuid as uuid_module
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from app.constants import REGISTRATION_LIMIT
+from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import (
     HackathonRegistrationResponse,
@@ -151,6 +152,19 @@ async def confirm_registration(hackathon_id: str, body: RegistrationConfirmReque
         "project_id": project_id,
     }
     reg_res = db.table("hackathon_registrations").insert(reg_data).execute()
+
+    if body.tx_signature and h.get("escrow_pubkey"):
+        fee = get_settings().registration_fee_usdc
+        if fee > 0:
+            db.table("registration_fees").insert({
+                "hackathon_id": hackathon_id,
+                "project_id": project_id,
+                "user_id": request.state.user_id,
+                "wallet_address": user.data["wallet_address"],
+                "tx_signature": body.tx_signature,
+                "amount_usdc": fee,
+            }).execute()
+
     return HackathonRegistrationResponse(**reg_res.data[0])
 
 
