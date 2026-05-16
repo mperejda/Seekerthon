@@ -145,15 +145,11 @@ fun VotingFeedScreen(
                     .align(Alignment.TopStart),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (state.isSeekerVerified) {
-                        SeekerBadge()
-                    }
+                if (state.isSeekerVerified) {
+                    SeekerBadge()
                 }
-                state.hackathon?.let { VotingDeadlineChip(it) }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                    VotePowerChip(multiplier = state.userMultiplier)
-                }
+                Spacer(Modifier.weight(1f))
+                VotePowerChip(multiplier = state.userMultiplier)
             }
 
             // Error snackbar
