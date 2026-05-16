@@ -129,6 +129,9 @@ export default function CreateHackathonPage() {
             className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
           <p className="text-xs text-gray-500 mt-1">Launch hackathons are limited to 100 project submissions.</p>
+          <p className="text-xs text-amber-700 mt-2">
+            Seekerthon has not been audited yet. We are actively raising funds for a security audit.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
