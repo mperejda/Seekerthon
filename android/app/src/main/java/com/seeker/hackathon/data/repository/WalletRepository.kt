@@ -3,11 +3,14 @@ package com.seeker.hackathon.data.repository
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.messaging.FirebaseMessaging
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import com.solana.mobilewalletadapter.clientlib.ConnectionIdentity
 import com.solana.mobilewalletadapter.clientlib.MobileWalletAdapter
 import com.solana.mobilewalletadapter.clientlib.RpcCluster
 import com.solana.mobilewalletadapter.clientlib.TransactionResult
+import com.seeker.hackathon.data.remote.DeviceTokenDto
 import com.seeker.hackathon.data.remote.SeekerApi
 import com.seeker.hackathon.data.remote.UserCreateDto
 import com.seeker.hackathon.di.TokenProvider
@@ -82,6 +85,13 @@ class WalletRepository @Inject constructor(
                 )
 
                 tokenProvider.saveToken(authToken.access_token)
+
+                // Register FCM token with the backend (non-fatal if it fails)
+                runCatching {
+                    val fcmToken = Tasks.await(FirebaseMessaging.getInstance().token)
+                    api.registerDeviceToken(DeviceTokenDto(fcmToken))
+                }
+
                 AuthState(token = authToken.access_token, user = authToken.user.toUser())
             }
         }

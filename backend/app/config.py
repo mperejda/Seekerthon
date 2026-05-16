@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_region: str = "us-east-1"
 
+    # Firebase Cloud Messaging — service account JSON as a single-line string
+    firebase_service_account_json: str = ""
+
     class Config:
         env_file = ".env"
 

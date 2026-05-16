@@ -1,9 +1,11 @@
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import hackathons, mint, projects, registrations, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
+from app import scheduler
 import uvicorn
 
 logging.basicConfig(
@@ -13,10 +15,19 @@ logging.basicConfig(
 
 _settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
 api = FastAPI(
     title="Seeker Hackathon API",
     description="Backend for the Seeker Hackathon voting platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 api.add_middleware(AuthMiddleware)

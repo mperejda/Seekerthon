@@ -73,6 +73,7 @@ data class VotePrepareResponseDto(
 )
 
 data class VoteConfirmRequestDto(val project_id: String, val vote_message: String, val tx_signature: String)
+data class DeviceTokenDto(val token: String)
 data class VoteResponseDto(
     val id: String,
     val voter_id: String,
@@ -123,4 +124,10 @@ interface SeekerApi {
 
     @POST("mint/builder-pass/claim")
     suspend fun claimBuilderPass(@Body body: MintClaimRequestDto): MintConfirmResponseDto
+
+    @POST("users/device-token")
+    suspend fun registerDeviceToken(@Body body: DeviceTokenDto)
+
+    @DELETE("users/device-token")
+    suspend fun deleteDeviceToken(@Body body: DeviceTokenDto)
 }

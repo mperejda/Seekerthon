@@ -4,6 +4,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request
 from jose import jwt
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 from nacl.signing import VerifyKey
@@ -12,6 +13,10 @@ from nacl.exceptions import BadSignatureError
 from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import UserCreate, UserResponse, WalletChallenge, AuthToken
+
+
+class DeviceTokenRequest(BaseModel):
+    token: str
 from app.services.solana_service import (
     get_skr_balance,
     compute_vote_weight,
@@ -141,6 +146,26 @@ async def get_me(request: Request):
 
     return UserResponse(**result.data[0])
 
+
+
+@router.post("/device-token", status_code=204)
+async def register_device_token(body: DeviceTokenRequest, request: Request):
+    """Register or refresh an FCM device token for the authenticated user."""
+    db = get_supabase_admin()
+    db.table("device_tokens").upsert(
+        {"user_id": request.state.user_id, "token": body.token},
+        on_conflict="user_id,token",
+    ).execute()
+
+
+@router.delete("/device-token", status_code=204)
+async def delete_device_token(body: DeviceTokenRequest, request: Request):
+    """Remove an FCM device token (on logout or token rotation)."""
+    db = get_supabase_admin()
+    db.table("device_tokens").delete() \
+        .eq("user_id", request.state.user_id) \
+        .eq("token", body.token) \
+        .execute()
 
 
 @router.get("/{user_id}", response_model=UserResponse)
