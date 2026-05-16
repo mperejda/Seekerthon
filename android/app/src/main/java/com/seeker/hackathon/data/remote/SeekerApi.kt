@@ -28,6 +28,12 @@ data class MintPrepareResponseDto(
 )
 data class MintClaimRequestDto(val signed_tx_b64: String, val mint_pubkey: String)
 data class MintConfirmResponseDto(val success: Boolean, val tx_signature: String)
+data class BuilderPassStatusDto(
+    val available: Boolean,
+    val authority_balance_lamports: Long,
+    val min_required_lamports: Long,
+    val message: String,
+)
 
 data class HackathonDto(
     val id: String,
@@ -111,6 +117,9 @@ interface SeekerApi {
 
     @POST("mint/builder-pass/prepare")
     suspend fun prepareMint(): MintPrepareResponseDto
+
+    @GET("mint/builder-pass/status")
+    suspend fun getBuilderPassStatus(): BuilderPassStatusDto
 
     @POST("mint/builder-pass/claim")
     suspend fun claimBuilderPass(@Body body: MintClaimRequestDto): MintConfirmResponseDto

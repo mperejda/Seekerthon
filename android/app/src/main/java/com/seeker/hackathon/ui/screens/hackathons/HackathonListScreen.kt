@@ -131,6 +131,8 @@ fun HackathonListScreen(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     BuilderPassCard(
                         hasBuilderPass = state.hasBuilderPass,
+                        builderPassAvailable = state.builderPassAvailable,
+                        builderPassUnavailableMessage = state.builderPassUnavailableMessage,
                         isMinting = state.isMinting,
                         mintSuccess = state.mintSuccess,
                         onMint = { viewModel.mintBuilderPass(sender) },
@@ -144,6 +146,8 @@ fun HackathonListScreen(
 @Composable
 private fun BuilderPassCard(
     hasBuilderPass: Boolean,
+    builderPassAvailable: Boolean,
+    builderPassUnavailableMessage: String?,
     isMinting: Boolean,
     mintSuccess: Boolean,
     onMint: () -> Unit,
@@ -189,18 +193,25 @@ private fun BuilderPassCard(
             }
 
             Text(
-                if (hasBuilderPass || mintSuccess)
-                    "You hold the Builder Pass — your vote power is 5× amplified."
-                else
-                    "5× vote boost on top of your SKR multiplier. Mint for $10 USDC.",
+                when {
+                    hasBuilderPass || mintSuccess ->
+                        "You hold the Builder Pass — your vote power is 5× amplified."
+                    !builderPassAvailable ->
+                        builderPassUnavailableMessage ?: "Builder Pass minting is temporarily unavailable."
+                    else ->
+                        "5× vote boost on top of your SKR multiplier. Mint for $10 USDC."
+                },
                 fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (!hasBuilderPass && !mintSuccess && !builderPassAvailable)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             if (!hasBuilderPass && !mintSuccess) {
                 Button(
                     onClick = onMint,
-                    enabled = !isMinting,
+                    enabled = !isMinting && builderPassAvailable,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                 ) {

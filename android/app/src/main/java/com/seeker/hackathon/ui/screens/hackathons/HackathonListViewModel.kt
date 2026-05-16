@@ -23,6 +23,8 @@ data class HackathonListUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasBuilderPass: Boolean = false,
+    val builderPassAvailable: Boolean = true,
+    val builderPassUnavailableMessage: String? = null,
     val isMinting: Boolean = false,
     val mintSuccess: Boolean = false,
     val error: String? = null,
@@ -59,11 +61,14 @@ class HackathonListViewModel @Inject constructor(
             try {
                 val hackathons = api.listHackathons().map { it.toHackathon() }
                 val me = try { api.getMe() } catch (_: Exception) { null }
+                val builderPassStatus = try { api.getBuilderPassStatus() } catch (_: Exception) { null }
                 _state.value = HackathonListUiState(
                     hackathons = hackathons,
                     visibleHackathons = hackathons.filterFor(_state.value.selectedList),
                     selectedList = _state.value.selectedList,
                     hasBuilderPass = me?.has_builder_pass ?: false,
+                    builderPassAvailable = builderPassStatus?.available ?: true,
+                    builderPassUnavailableMessage = builderPassStatus?.message?.takeIf { it.isNotBlank() },
                 )
             } catch (e: Exception) {
                 _state.value = HackathonListUiState(error = e.message)
@@ -77,10 +82,15 @@ class HackathonListViewModel @Inject constructor(
             try {
                 val hackathons = api.listHackathons().map { it.toHackathon() }
                 val me = try { api.getMe() } catch (_: Exception) { null }
+                val builderPassStatus = try { api.getBuilderPassStatus() } catch (_: Exception) { null }
                 _state.value = _state.value.copy(
                     hackathons = hackathons,
                     visibleHackathons = hackathons.filterFor(_state.value.selectedList),
                     hasBuilderPass = me?.has_builder_pass ?: _state.value.hasBuilderPass,
+                    builderPassAvailable = builderPassStatus?.available ?: _state.value.builderPassAvailable,
+                    builderPassUnavailableMessage = builderPassStatus?.message
+                        ?.takeIf { it.isNotBlank() }
+                        ?: if (builderPassStatus?.available == true) null else _state.value.builderPassUnavailableMessage,
                     isRefreshing = false,
                 )
             } catch (e: Exception) {
@@ -100,11 +110,19 @@ class HackathonListViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isMinting = true, error = null)
             try {
-                // Step 1: get an unsigned combined payment + mint tx from backend
+                if (!_state.value.builderPassAvailable) {
+                    _state.value = _state.value.copy(
+                        isMinting = false,
+                        error = _state.value.builderPassUnavailableMessage
+                            ?: "Builder Pass minting is temporarily unavailable.",
+                    )
+                    return@launch
+                }
+                // Step 1: get a buyer-only payment tx from backend
                 val prepare = api.prepareMint()
-                // Step 2: wallet signs only the buyer slot and returns the signed bytes
+                // Step 2: wallet signs the clean payment tx and returns the signed bytes
                 val signedTxB64 = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64).getOrThrow()
-                // Step 3: backend adds authority/mint signatures, submits, and verifies the atomic tx
+                // Step 3: backend submits payment, verifies buyer-paid fees, then mints the NFT
                 api.claimBuilderPass(MintClaimRequestDto(signed_tx_b64 = signedTxB64, mint_pubkey = prepare.mint_pubkey))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {

@@ -80,6 +80,31 @@ def _decrypt_builder_pass_mint_keypair(ciphertext: str) -> SoldersKeypair:
     return SoldersKeypair.from_bytes(raw)
 
 
+def builder_pass_authority_pubkey() -> str:
+    raw = json.loads(_settings.builder_pass_authority_keypair)
+    if not raw:
+        raise ValueError("BUILDER_PASS_AUTHORITY_KEYPAIR is required for Builder Pass minting")
+    return str(SoldersKeypair.from_bytes(bytes(raw)).pubkey())
+
+
+async def get_builder_pass_mint_availability() -> dict[str, Any]:
+    authority_pubkey = builder_pass_authority_pubkey()
+    min_required = _settings.builder_pass_min_mint_balance_lamports
+    resp = await _rpc_post(
+        "getBalance",
+        [authority_pubkey, {"commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    balance = int(resp["result"]["value"])
+    available = balance >= min_required
+    return {
+        "available": available,
+        "authority_balance_lamports": balance,
+        "min_required_lamports": min_required,
+        "message": "" if available else "Builder Pass minting is temporarily unavailable.",
+    }
+
+
 def _anchor_discriminator(name: str) -> bytes:
     import hashlib
     return hashlib.sha256(f"global:{name}".encode()).digest()[:8]
@@ -877,7 +902,7 @@ async def submit_mint_transaction(signed_tx_b64: str, mint_pk_str: str, buyer_wa
 async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) -> str:
     """
     Build an unsigned payment transaction the wallet signs to buy a Builder Pass.
-    Contains two instructions:
+    Contains two buyer-only instructions:
       1. Idempotent create treasury USDC ATA (no-op if exists)
       2. USDC transfer: buyer → treasury
     Buyer is the only signer.
@@ -886,6 +911,7 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     buyer_pk = Pubkey.from_string(buyer_wallet)
     usdc_mint_pk = Pubkey.from_string(USDC_MINT)
     treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
+    authority_pk = Pubkey.from_string(builder_pass_authority_pubkey())
 
     buyer_usdc_ata = _find_ata(buyer_pk, usdc_mint_pk)
     treasury_usdc_ata = _find_ata(treasury_pk, usdc_mint_pk)
@@ -916,6 +942,17 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     )
 
     instructions = [create_treasury_ata_ix, transfer_ix]
+    if settings.builder_pass_sol_fee_lamports > 0:
+        instructions.append(
+            Instruction(
+                program_id=SYSTEM_PROGRAM_ID,
+                accounts=[
+                    AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=True),
+                    AccountMeta(pubkey=authority_pk, is_signer=False, is_writable=True),
+                ],
+                data=struct.pack("<IQ", 2, settings.builder_pass_sol_fee_lamports),
+            )
+        )
 
     bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
@@ -970,6 +1007,20 @@ def parse_treasury_usdc_delta(tx_data: dict[str, Any], treasury_wallet: str) -> 
         return total
 
     return summed_balances("postTokenBalances") - summed_balances("preTokenBalances")
+
+
+def parse_wallet_sol_delta(tx_data: dict[str, Any], wallet: str) -> int:
+    """Return the lamport balance delta for a transaction account."""
+    message = _tx_message(tx_data)
+    keys = message.get("accountKeys") or []
+    pre = (tx_data.get("meta") or {}).get("preBalances") or []
+    post = (tx_data.get("meta") or {}).get("postBalances") or []
+
+    for idx, acc in enumerate(keys):
+        pubkey = acc.get("pubkey", "") if isinstance(acc, dict) else str(acc)
+        if pubkey == wallet and idx < len(pre) and idx < len(post):
+            return int(post[idx]) - int(pre[idx])
+    return 0
 
 
 def _owner_token_delta(tx_data: dict[str, Any], mint: str, owner: str) -> int:
@@ -1053,8 +1104,8 @@ async def submit_and_confirm_transaction(signed_tx_b64: str) -> str:
     raise Exception("Transaction not confirmed within 60 seconds")
 
 
-async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amount: int) -> bool:
-    """Verify a USDC transfer from buyer to treasury landed on-chain with the expected amount."""
+async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amount: int) -> dict[str, Any] | None:
+    """Return confirmed tx data when buyer paid the configured treasury in USDC."""
     settings = _settings
     treasury = settings.builder_pass_treasury
 
@@ -1065,7 +1116,7 @@ async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amo
     )
     tx_data = resp.get("result")
     if not tx_data or tx_data.get("meta", {}).get("err") is not None:
-        return False
+        return None
 
     # Buyer must have signed
     message = tx_data.get("transaction", {}).get("message", {})
@@ -1075,7 +1126,7 @@ async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amo
         if isinstance(acc, dict) and acc.get("signer")
     }
     if buyer_wallet not in signer_pubkeys:
-        return False
+        return None
 
     # Treasury USDC balance must have increased by at least expected_amount
     meta = tx_data.get("meta", {})
@@ -1090,7 +1141,7 @@ async def verify_usdc_payment(tx_signature: str, buyer_wallet: str, expected_amo
 
     increase = post_by_owner.get(treasury, 0) - pre_by_owner.get(treasury, 0)
     _log.info("USDC payment check: treasury increase=%d expected=%d", increase, expected_amount)
-    return increase >= expected_amount
+    return tx_data if increase >= expected_amount else None
 
 
 async def verify_builder_pass_holder(wallet_address: str) -> bool:

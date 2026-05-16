@@ -7,11 +7,12 @@ from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import MintConfirmResponse
 from app.services.solana_service import (
-    build_unsigned_combined_mint_transaction,
-    fetch_confirmed_transaction,
+    build_usdc_transfer_transaction,
+    get_builder_pass_mint_availability,
+    mint_nft_server_side,
     parse_treasury_usdc_delta,
-    submit_mint_transaction,
-    validate_builder_pass_mint_transaction,
+    submit_and_confirm_transaction,
+    verify_usdc_payment,
 )
 
 router = APIRouter()
@@ -30,7 +31,14 @@ class PrepareResponse(BaseModel):
 
 class ClaimRequest(BaseModel):
     signed_tx_b64: str
-    mint_pubkey: str
+    mint_pubkey: str = ""
+
+
+class BuilderPassStatusResponse(BaseModel):
+    available: bool
+    authority_balance_lamports: int
+    min_required_lamports: int
+    message: str
 
 
 def _already_owns(user_id: str) -> bool:
@@ -39,77 +47,84 @@ def _already_owns(user_id: str) -> bool:
     return bool(row.data and row.data.get("has_builder_pass"))
 
 
+async def _require_builder_pass_mint_available() -> dict:
+    status = await get_builder_pass_mint_availability()
+    if not status["available"]:
+        raise HTTPException(status_code=503, detail="Builder Pass minting is temporarily unavailable")
+    return status
+
+
+@router.get("/builder-pass/status", response_model=BuilderPassStatusResponse)
+async def builder_pass_status():
+    try:
+        return await get_builder_pass_mint_availability()
+    except Exception:
+        _log.exception("Failed to check Builder Pass mint availability")
+        raise HTTPException(status_code=500, detail="Failed to check Builder Pass mint availability")
+
+
 @router.post("/builder-pass/prepare", response_model=PrepareResponse)
 async def prepare_builder_pass_mint(request: Request):
     """
-    Build and return an unsigned combined transaction (payment + NFT mint).
-    The buyer's wallet signs only their slot; the backend adds authority/mint
-    signatures and submits in /claim.
+    Build a buyer-only payment transaction that Seeker can simulate cleanly.
+    The buyer pays the USDC Builder Pass price; backend pays NFT mint costs.
     """
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
     price = _settings.builder_pass_price_usdc
     try:
-        tx_b64, mint_pubkey, amount_raw, amount_display, sol_fee, sol_fee_display = \
-            await build_unsigned_combined_mint_transaction(request.state.wallet_address, price)
+        await _require_builder_pass_mint_available()
+        tx_b64 = await build_usdc_transfer_transaction(request.state.wallet_address, price)
+    except HTTPException:
+        raise
     except Exception as exc:
-        _log.exception("Failed to build combined mint transaction")
+        _log.exception("Failed to build Builder Pass payment transaction")
         raise HTTPException(status_code=500, detail=str(exc))
 
     return PrepareResponse(
         transaction_b64=tx_b64,
-        mint_pubkey=mint_pubkey,
-        amount_raw=amount_raw,
-        amount_display=amount_display,
-        sol_fee_lamports=sol_fee,
-        sol_fee_display=sol_fee_display,
+        amount_raw=price,
+        amount_display=f"{price / 1_000_000:.6g}",
     )
 
 
 @router.post("/builder-pass/claim", response_model=MintConfirmResponse)
 async def claim_builder_pass(request: Request, body: ClaimRequest):
-    """Complete backend signatures, submit the combined tx, and reconcile the mint."""
+    """Submit the buyer payment, verify it, then mint the Builder Pass server-side."""
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
     db = get_supabase_admin()
+    price = _settings.builder_pass_price_usdc
     try:
-        mint_sig = await submit_mint_transaction(
-            body.signed_tx_b64,
-            body.mint_pubkey,
-            request.state.wallet_address,
-        )
-        tx_data = await fetch_confirmed_transaction(mint_sig)
+        await _require_builder_pass_mint_available()
+        payment_sig = await submit_and_confirm_transaction(body.signed_tx_b64)
+        tx_data = await verify_usdc_payment(payment_sig, request.state.wallet_address, price)
+        if not tx_data:
+            raise HTTPException(status_code=402, detail="USDC payment not confirmed on-chain")
+
         treasury_received = parse_treasury_usdc_delta(tx_data, _settings.builder_pass_treasury)
-        expected_price = _settings.builder_pass_price_usdc
-        is_valid_mint, validation_error = validate_builder_pass_mint_transaction(
-            tx_data,
-            request.state.wallet_address,
-            body.mint_pubkey,
-            expected_price,
-            _settings.builder_pass_treasury,
-        )
-        status = "confirmed" if is_valid_mint else "reconciled_error"
+        if treasury_received < price:
+            raise HTTPException(status_code=402, detail="Insufficient USDC payment")
+
+        mint_pubkey, mint_sig = await mint_nft_server_side(request.state.wallet_address)
 
         db.table("builder_pass_mints").insert(
             {
                 "user_id": request.state.user_id,
                 "wallet_address": request.state.wallet_address,
-                "mint_pubkey": body.mint_pubkey,
+                "mint_pubkey": mint_pubkey,
                 "mint_tx_signature": mint_sig,
-                "price_usdc_raw": expected_price,
+                "price_usdc_raw": price,
                 "treasury_usdc_received_raw": treasury_received,
-                "status": status,
-                "raw_transaction_json": tx_data,
+                "status": "confirmed",
+                "raw_transaction_json": {
+                    "payment_tx_signature": payment_sig,
+                    "payment_transaction": tx_data,
+                },
             }
         ).execute()
-
-        if status != "confirmed":
-            raise HTTPException(
-                status_code=409,
-                detail=f"Builder Pass mint requires manual reconciliation: {validation_error}",
-            )
 
     except HTTPException:
         raise
@@ -120,6 +135,6 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
     db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
-    _log.info("Builder pass granted to user %s mint=%s tx=%s", request.state.user_id, body.mint_pubkey, mint_sig)
+    _log.info("Builder pass granted to user %s mint=%s tx=%s", request.state.user_id, mint_pubkey, mint_sig)
 
     return MintConfirmResponse(success=True, tx_signature=mint_sig)
