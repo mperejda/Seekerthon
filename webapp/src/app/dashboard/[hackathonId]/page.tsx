@@ -80,6 +80,11 @@ const STATUS_BADGE: Record<string, string> = {
   completed: "bg-purple-100 text-purple-700",
 };
 
+function buildWinnerXPostUrl(projectName: string, hackathonTitle: string): string {
+  const text = `${projectName} just won ${hackathonTitle} on Seekerthon.`;
+  return `https://x.com/intent/tweet?${new URLSearchParams({ text }).toString()}`;
+}
+
 export default function ResultsDashboard({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey, signTransaction } = useWallet();
@@ -298,6 +303,17 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
                     <button onClick={() => claimPrize(project.id)} disabled={claiming === project.id || !publicKey} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
                       {claiming === project.id ? "Claiming..." : "Claim Prize"}
                     </button>
+                  )}
+                  {project.status === "winner" && user.id === project.team_lead_id && hackathon && (
+                    <a
+                      href={buildWinnerXPostUrl(project.name, hackathon.title)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                    >
+                      <span className="font-bold">X</span>
+                      <span>Post Win</span>
+                    </a>
                   )}
                 </div>
               </div>

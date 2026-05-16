@@ -19,6 +19,7 @@ interface Registration {
 
 interface Project {
   status: string;
+  name?: string;
 }
 
 interface RegistrationStatus {
@@ -51,6 +52,11 @@ function closedReason(h: Hackathon): string {
   return "This hackathon is not accepting submissions.";
 }
 
+function buildXPostUrl(projectName: string, hackathonTitle: string): string {
+  const text = `I just submitted my ${projectName} to ${hackathonTitle} on Seekerthon.`;
+  return `https://x.com/intent/tweet?${new URLSearchParams({ text }).toString()}`;
+}
+
 export default function SubmitProjectPage({ params }: { params: Promise<{ hackathonId: string }> }) {
   const { hackathonId } = use(params);
   const { publicKey, signTransaction } = useWallet();
@@ -74,6 +80,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const [stepStatus, setStepStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<"registered" | "submitted" | null>(null);
+  const [submittedProjectName, setSubmittedProjectName] = useState<string | null>(null);
 
   const token = typeof window !== "undefined" ? localStorage.getItem("seeker_token") : null;
 
@@ -106,6 +113,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
                 headers: { Authorization: `Bearer ${token}` },
               });
               if (!cancelled && ["submitted", "approved", "winner"].includes(proj.status)) {
+                setSubmittedProjectName(proj.name || null);
                 setDone("submitted");
               }
             } catch {
@@ -248,6 +256,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
       }
 
+      setSubmittedProjectName(form.name);
       setDone("submitted");
     } catch (err: any) {
       setError(err.message);
@@ -297,11 +306,23 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   // ── Success states ──────────────────────────────────────────────────────────
 
   if (done === "submitted") {
+    const projectName = submittedProjectName || form.name || "project";
+    const xPostUrl = buildXPostUrl(projectName, hackathon.title);
+
     return (
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
         <div className="text-5xl mb-4">🎉</div>
         <h2 className="text-2xl font-bold mb-2">Project submitted!</h2>
-        <p className="text-gray-600">Your project will be visible to Seeker voters once voting begins.</p>
+        <p className="text-gray-600 mb-6">Your project will be visible to Seeker voters once voting begins.</p>
+        <a
+          href={xPostUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+        >
+          <span className="font-bold">X</span>
+          <span>Post on X</span>
+        </a>
         <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );
