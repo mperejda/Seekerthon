@@ -163,6 +163,7 @@ async def confirm_registration(hackathon_id: str, body: RegistrationConfirmReque
                 "wallet_address": user.data["wallet_address"],
                 "tx_signature": body.tx_signature,
                 "amount_usdc": fee,
+                "amount_usd": fee / 1_000_000,
             }).execute()
 
     return HackathonRegistrationResponse(**reg_res.data[0])
