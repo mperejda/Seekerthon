@@ -143,15 +143,17 @@ fun VotingFeedScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 48.dp)
                     .align(Alignment.TopStart),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (state.isSeekerVerified) {
-                    SeekerBadge()
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (state.isSeekerVerified) {
+                        SeekerBadge()
+                    }
                 }
                 state.hackathon?.let { VotingDeadlineChip(it) }
-                Spacer(Modifier.weight(1f))
-                VotePowerChip(multiplier = state.userMultiplier)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    VotePowerChip(multiplier = state.userMultiplier)
+                }
             }
 
             // Error snackbar
