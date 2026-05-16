@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "370897959708",
+    "project_id": "seekerthon",
+    "storage_bucket": "seekerthon.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:370897959708:android:baf372c7387726364558d9",
+        "android_client_info": {
+          "package_name": "com.alpinelabs.seekerthon"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC8cx9PovMo4tF74OqrwRf5_AdoyRPE91k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
