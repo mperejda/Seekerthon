@@ -100,11 +100,11 @@ class HackathonListViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(isMinting = true, error = null)
             try {
-                // Step 1: get unsigned USDC transfer tx from backend
+                // Step 1: get an unsigned combined payment + mint tx from backend
                 val prepare = api.prepareMint()
-                // Step 2: wallet signs + sends the USDC transfer (single signer, simulates cleanly)
+                // Step 2: wallet signs only the buyer slot and returns the signed bytes
                 val signedTxB64 = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64).getOrThrow()
-                // Step 3: backend submits tx, verifies collection — payment + NFT are atomic
+                // Step 3: backend adds authority/mint signatures, submits, and verifies the atomic tx
                 api.claimBuilderPass(MintClaimRequestDto(signed_tx_b64 = signedTxB64, mint_pubkey = prepare.mint_pubkey))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
             } catch (e: Exception) {
