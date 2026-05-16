@@ -313,17 +313,19 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
       <div className="max-w-2xl mx-auto py-12 px-4 text-center">
         <div className="text-5xl mb-4">🎉</div>
         <h2 className="text-2xl font-bold mb-2">Project submitted!</h2>
-        <p className="text-gray-600 mb-6">Your project will be visible to Seeker voters once voting begins.</p>
-        <a
-          href={xPostUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-        >
-          <span className="font-bold">X</span>
-          <span>Post on X</span>
-        </a>
-        <a href="/" className="inline-block mt-6 text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+        <p className="text-gray-600 mb-8">Your project will be visible to Seeker voters once voting begins.</p>
+        <div className="flex flex-col items-center gap-4">
+          <a
+            href={xPostUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            <span className="font-bold">X</span>
+            <span>Post on X</span>
+          </a>
+          <a href="/" className="text-purple-600 hover:underline text-sm">← Back to hackathons</a>
+        </div>
       </div>
     );
   }
