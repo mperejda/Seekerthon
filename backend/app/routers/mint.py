@@ -70,6 +70,7 @@ async def builder_pass_status():
 async def _builder_pass_mint_cost_snapshot(mint_sig: str) -> dict:
     snapshot = {
         "mint_sol_spent_lamports": None,
+        "mint_sol_spent_usd": None,
         "sol_usd_price_at_mint": None,
         "sol_usd_price_source": None,
         "sol_usd_price_checked_at": None,
@@ -89,6 +90,9 @@ async def _builder_pass_mint_cost_snapshot(mint_sig: str) -> dict:
         snapshot["sol_usd_price_at_mint"] = price["price_usd"]
         snapshot["sol_usd_price_source"] = price["source"]
         snapshot["sol_usd_price_checked_at"] = price["checked_at"]
+        lamports = snapshot["mint_sol_spent_lamports"]
+        if lamports is not None:
+            snapshot["mint_sol_spent_usd"] = (lamports / 1_000_000_000) * price["price_usd"]
     except Exception:
         _log.exception("Failed to fetch SOL/USD price for Builder Pass mint")
 
@@ -152,6 +156,7 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
                 "price_usdc_raw": price,
                 "treasury_usdc_received_raw": treasury_received,
                 "mint_sol_spent_lamports": mint_cost["mint_sol_spent_lamports"],
+                "mint_sol_spent_usd": mint_cost["mint_sol_spent_usd"],
                 "sol_usd_price_at_mint": mint_cost["sol_usd_price_at_mint"],
                 "sol_usd_price_source": mint_cost["sol_usd_price_source"],
                 "sol_usd_price_checked_at": mint_cost["sol_usd_price_checked_at"],
