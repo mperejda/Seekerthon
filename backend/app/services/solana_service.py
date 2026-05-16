@@ -105,6 +105,25 @@ async def get_builder_pass_mint_availability() -> dict[str, Any]:
     }
 
 
+async def fetch_sol_usd_price() -> dict[str, Any]:
+    """Fetch the current SOL/USD quote from CoinGecko's public simple price endpoint."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            _settings.sol_usd_price_url,
+            params={"ids": "solana", "vs_currencies": "usd"},
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    price = (data.get("solana") or {}).get("usd")
+    if price is None:
+        raise ValueError("SOL/USD price missing from price response")
+    return {
+        "price_usd": float(price),
+        "source": "coingecko",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _anchor_discriminator(name: str) -> bytes:
     import hashlib
     return hashlib.sha256(f"global:{name}".encode()).digest()[:8]

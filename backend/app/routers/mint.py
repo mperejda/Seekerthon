@@ -7,9 +7,13 @@ from app.config import get_settings
 from app.db import get_supabase_admin
 from app.models.schemas import MintConfirmResponse
 from app.services.solana_service import (
+    builder_pass_authority_pubkey,
     build_usdc_transfer_transaction,
+    fetch_confirmed_transaction,
+    fetch_sol_usd_price,
     get_builder_pass_mint_availability,
     mint_nft_server_side,
+    parse_wallet_sol_delta,
     parse_treasury_usdc_delta,
     submit_and_confirm_transaction,
     verify_usdc_payment,
@@ -63,6 +67,34 @@ async def builder_pass_status():
         raise HTTPException(status_code=500, detail="Failed to check Builder Pass mint availability")
 
 
+async def _builder_pass_mint_cost_snapshot(mint_sig: str) -> dict:
+    snapshot = {
+        "mint_sol_spent_lamports": None,
+        "sol_usd_price_at_mint": None,
+        "sol_usd_price_source": None,
+        "sol_usd_price_checked_at": None,
+        "mint_transaction": None,
+    }
+
+    try:
+        mint_tx_data = await fetch_confirmed_transaction(mint_sig)
+        authority_delta = parse_wallet_sol_delta(mint_tx_data, builder_pass_authority_pubkey())
+        snapshot["mint_sol_spent_lamports"] = max(-authority_delta, 0)
+        snapshot["mint_transaction"] = mint_tx_data
+    except Exception:
+        _log.exception("Failed to calculate Builder Pass SOL mint spend")
+
+    try:
+        price = await fetch_sol_usd_price()
+        snapshot["sol_usd_price_at_mint"] = price["price_usd"]
+        snapshot["sol_usd_price_source"] = price["source"]
+        snapshot["sol_usd_price_checked_at"] = price["checked_at"]
+    except Exception:
+        _log.exception("Failed to fetch SOL/USD price for Builder Pass mint")
+
+    return snapshot
+
+
 @router.post("/builder-pass/prepare", response_model=PrepareResponse)
 async def prepare_builder_pass_mint(request: Request):
     """
@@ -109,6 +141,7 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
             raise HTTPException(status_code=402, detail="Insufficient USDC payment")
 
         mint_pubkey, mint_sig = await mint_nft_server_side(request.state.wallet_address)
+        mint_cost = await _builder_pass_mint_cost_snapshot(mint_sig)
 
         db.table("builder_pass_mints").insert(
             {
@@ -118,10 +151,15 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
                 "mint_tx_signature": mint_sig,
                 "price_usdc_raw": price,
                 "treasury_usdc_received_raw": treasury_received,
+                "mint_sol_spent_lamports": mint_cost["mint_sol_spent_lamports"],
+                "sol_usd_price_at_mint": mint_cost["sol_usd_price_at_mint"],
+                "sol_usd_price_source": mint_cost["sol_usd_price_source"],
+                "sol_usd_price_checked_at": mint_cost["sol_usd_price_checked_at"],
                 "status": "confirmed",
                 "raw_transaction_json": {
                     "payment_tx_signature": payment_sig,
                     "payment_transaction": tx_data,
+                    "mint_transaction": mint_cost["mint_transaction"],
                 },
             }
         ).execute()

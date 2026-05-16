@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     builder_pass_price_usdc: int = 10_000_000   # $10 USDC (6 decimals); set to 0 to disable payment
     builder_pass_sol_fee_lamports: int = 0  # Deprecated; backend pays Builder Pass mint rent/fees
     builder_pass_min_mint_balance_lamports: int = 30_000_000  # 0.03 SOL; conservative one-mint threshold
+    sol_usd_price_url: str = "https://api.coingecko.com/api/v3/simple/price"
 
     # Registration fee (USDC, 6 decimals) collected at hackathon sign-up; goes to builder_pass_treasury
     registration_fee_usdc: int = 2_000_000  # $2.00 USDC; set to 0 to disable
