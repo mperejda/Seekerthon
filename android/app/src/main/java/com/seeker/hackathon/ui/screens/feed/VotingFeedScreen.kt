@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui.screens.feed
+package com.alpinelabs.seekerthon.ui.screens.feed
 
 import android.content.Intent
 import android.net.Uri
@@ -39,9 +39,9 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import androidx.browser.customtabs.CustomTabsIntent
-import com.seeker.hackathon.domain.model.Hackathon
-import com.seeker.hackathon.domain.model.Project
-import com.seeker.hackathon.ui.LocalActivityResultSender
+import com.alpinelabs.seekerthon.domain.model.Hackathon
+import com.alpinelabs.seekerthon.domain.model.Project
+import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter

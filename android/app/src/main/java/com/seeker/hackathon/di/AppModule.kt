@@ -1,10 +1,10 @@
-package com.seeker.hackathon.di
+package com.alpinelabs.seekerthon.di
 
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
-import com.seeker.hackathon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.data.remote.SeekerApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,7 +24,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    private const val BASE_URL = com.seeker.hackathon.BuildConfig.BASE_URL
+    private const val BASE_URL = com.alpinelabs.seekerthon.BuildConfig.BASE_URL
 
     @Provides
     @Singleton

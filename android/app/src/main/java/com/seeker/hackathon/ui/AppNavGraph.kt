@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui
+package com.alpinelabs.seekerthon.ui
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavType
@@ -6,9 +6,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.seeker.hackathon.ui.screens.feed.VotingFeedScreen
-import com.seeker.hackathon.ui.screens.hackathons.HackathonListScreen
-import com.seeker.hackathon.ui.screens.login.LoginScreen
+import com.alpinelabs.seekerthon.ui.screens.feed.VotingFeedScreen
+import com.alpinelabs.seekerthon.ui.screens.hackathons.HackathonListScreen
+import com.alpinelabs.seekerthon.ui.screens.login.LoginScreen
 
 object Routes {
     const val LOGIN = "login"

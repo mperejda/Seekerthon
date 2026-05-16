@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui.screens.login
+package com.alpinelabs.seekerthon.ui.screens.login
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,7 +11,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.seeker.hackathon.ui.LocalActivityResultSender
+import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
 
 @Composable
 fun LoginScreen(

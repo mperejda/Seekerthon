@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui.screens.hackathons
+package com.alpinelabs.seekerthon.ui.screens.hackathons
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -24,8 +24,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.seeker.hackathon.domain.model.Hackathon
-import com.seeker.hackathon.ui.LocalActivityResultSender
+import com.alpinelabs.seekerthon.domain.model.Hackathon
+import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 

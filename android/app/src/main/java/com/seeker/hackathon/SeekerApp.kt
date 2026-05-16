@@ -1,4 +1,4 @@
-package com.seeker.hackathon
+package com.alpinelabs.seekerthon
 
 import android.app.Application
 import android.app.NotificationChannel

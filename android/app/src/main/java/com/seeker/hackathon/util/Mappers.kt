@@ -1,11 +1,11 @@
-package com.seeker.hackathon.util
+package com.alpinelabs.seekerthon.util
 
-import com.seeker.hackathon.data.remote.HackathonDto
-import com.seeker.hackathon.data.remote.ProjectDto
-import com.seeker.hackathon.data.remote.UserDto
-import com.seeker.hackathon.domain.model.Hackathon
-import com.seeker.hackathon.domain.model.Project
-import com.seeker.hackathon.domain.model.User
+import com.alpinelabs.seekerthon.data.remote.HackathonDto
+import com.alpinelabs.seekerthon.data.remote.ProjectDto
+import com.alpinelabs.seekerthon.data.remote.UserDto
+import com.alpinelabs.seekerthon.domain.model.Hackathon
+import com.alpinelabs.seekerthon.domain.model.Project
+import com.alpinelabs.seekerthon.domain.model.User
 import java.time.Instant
 
 fun UserDto.toUser() = User(

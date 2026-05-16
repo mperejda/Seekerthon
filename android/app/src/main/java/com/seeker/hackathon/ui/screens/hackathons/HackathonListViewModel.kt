@@ -1,13 +1,13 @@
-package com.seeker.hackathon.ui.screens.hackathons
+package com.alpinelabs.seekerthon.ui.screens.hackathons
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import com.seeker.hackathon.data.remote.MintClaimRequestDto
-import com.seeker.hackathon.data.remote.SeekerApi
-import com.seeker.hackathon.data.repository.WalletRepository
-import com.seeker.hackathon.domain.model.Hackathon
-import com.seeker.hackathon.util.toHackathon
+import com.alpinelabs.seekerthon.data.remote.MintClaimRequestDto
+import com.alpinelabs.seekerthon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.data.repository.WalletRepository
+import com.alpinelabs.seekerthon.domain.model.Hackathon
+import com.alpinelabs.seekerthon.util.toHackathon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

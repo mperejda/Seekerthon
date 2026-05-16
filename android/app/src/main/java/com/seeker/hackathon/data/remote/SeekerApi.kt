@@ -1,4 +1,4 @@
-package com.seeker.hackathon.data.remote
+package com.alpinelabs.seekerthon.data.remote
 
 import retrofit2.http.*
 

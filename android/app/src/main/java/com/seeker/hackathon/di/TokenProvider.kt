@@ -1,4 +1,4 @@
-package com.seeker.hackathon.di
+package com.alpinelabs.seekerthon.di
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences

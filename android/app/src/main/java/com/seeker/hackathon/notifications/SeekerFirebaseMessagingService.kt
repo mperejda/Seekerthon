@@ -1,4 +1,4 @@
-package com.seeker.hackathon.notifications
+package com.alpinelabs.seekerthon.notifications
 
 import android.app.PendingIntent
 import android.content.Intent
@@ -6,12 +6,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.seeker.hackathon.MainActivity
-import com.seeker.hackathon.R
-import com.seeker.hackathon.SeekerApp.Companion.NOTIFICATION_CHANNEL_ID
-import com.seeker.hackathon.data.remote.DeviceTokenDto
-import com.seeker.hackathon.data.remote.SeekerApi
-import com.seeker.hackathon.di.TokenProvider
+import com.alpinelabs.seekerthon.MainActivity
+import com.alpinelabs.seekerthon.R
+import com.alpinelabs.seekerthon.SeekerApp.Companion.NOTIFICATION_CHANNEL_ID
+import com.alpinelabs.seekerthon.data.remote.DeviceTokenDto
+import com.alpinelabs.seekerthon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.di.TokenProvider
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

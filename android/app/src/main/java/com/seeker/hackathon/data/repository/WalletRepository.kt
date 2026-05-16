@@ -1,4 +1,4 @@
-package com.seeker.hackathon.data.repository
+package com.alpinelabs.seekerthon.data.repository
 
 import android.content.Context
 import android.net.Uri
@@ -10,12 +10,12 @@ import com.solana.mobilewalletadapter.clientlib.ConnectionIdentity
 import com.solana.mobilewalletadapter.clientlib.MobileWalletAdapter
 import com.solana.mobilewalletadapter.clientlib.RpcCluster
 import com.solana.mobilewalletadapter.clientlib.TransactionResult
-import com.seeker.hackathon.data.remote.DeviceTokenDto
-import com.seeker.hackathon.data.remote.SeekerApi
-import com.seeker.hackathon.data.remote.UserCreateDto
-import com.seeker.hackathon.di.TokenProvider
-import com.seeker.hackathon.domain.model.AuthState
-import com.seeker.hackathon.util.toUser
+import com.alpinelabs.seekerthon.data.remote.DeviceTokenDto
+import com.alpinelabs.seekerthon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.data.remote.UserCreateDto
+import com.alpinelabs.seekerthon.di.TokenProvider
+import com.alpinelabs.seekerthon.domain.model.AuthState
+import com.alpinelabs.seekerthon.util.toUser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

@@ -1,4 +1,4 @@
-package com.seeker.hackathon.domain.model
+package com.alpinelabs.seekerthon.domain.model
 
 import java.time.Instant
 

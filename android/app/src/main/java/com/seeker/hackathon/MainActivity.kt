@@ -1,4 +1,4 @@
-package com.seeker.hackathon
+package com.alpinelabs.seekerthon
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,9 +9,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
-import com.seeker.hackathon.ui.AppNavGraph
-import com.seeker.hackathon.ui.LocalActivityResultSender
-import com.seeker.hackathon.ui.theme.SeekerHackathonTheme
+import com.alpinelabs.seekerthon.ui.AppNavGraph
+import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
+import com.alpinelabs.seekerthon.ui.theme.SeekerHackathonTheme
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import dagger.hilt.android.AndroidEntryPoint
 

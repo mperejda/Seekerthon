@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui.screens.feed
+package com.alpinelabs.seekerthon.ui.screens.feed
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -8,14 +8,14 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import com.seeker.hackathon.data.remote.SeekerApi
-import com.seeker.hackathon.data.remote.VoteConfirmRequestDto
-import com.seeker.hackathon.data.remote.VotePrepareRequestDto
-import com.seeker.hackathon.data.repository.WalletRepository
-import com.seeker.hackathon.domain.model.Hackathon
-import com.seeker.hackathon.domain.model.Project
-import com.seeker.hackathon.util.toHackathon
-import com.seeker.hackathon.util.toProject
+import com.alpinelabs.seekerthon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.data.remote.VoteConfirmRequestDto
+import com.alpinelabs.seekerthon.data.remote.VotePrepareRequestDto
+import com.alpinelabs.seekerthon.data.repository.WalletRepository
+import com.alpinelabs.seekerthon.domain.model.Hackathon
+import com.alpinelabs.seekerthon.domain.model.Project
+import com.alpinelabs.seekerthon.util.toHackathon
+import com.alpinelabs.seekerthon.util.toProject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

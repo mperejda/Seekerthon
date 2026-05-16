@@ -1,4 +1,4 @@
-package com.seeker.hackathon.ui.theme
+package com.alpinelabs.seekerthon.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*

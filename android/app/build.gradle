@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace 'com.seeker.hackathon'
+    namespace 'com.alpinelabs.seekerthon'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.seeker.hackathon"
+        applicationId "com.alpinelabs.seekerthon"
         minSdk 26
         targetSdk 35
         versionCode 1

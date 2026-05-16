@@ -1,9 +1,9 @@
-package com.seeker.hackathon.ui.screens.login
+package com.alpinelabs.seekerthon.ui.screens.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import com.seeker.hackathon.data.repository.WalletRepository
+import com.alpinelabs.seekerthon.data.repository.WalletRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
