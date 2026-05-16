@@ -677,6 +677,8 @@ private fun VotePowerChip(multiplier: Double) {
                 color = Color(0xFFAFA9EC),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }
@@ -784,9 +786,9 @@ private val VOTING_TIME_FMT: DateTimeFormatter =
 private fun VotingDeadlineChip(hackathon: Hackathon) {
     val now = remember { java.time.Instant.now() }
     val label = when {
-        now.isBefore(hackathon.votingStart) -> "Voting starts ${VOTING_TIME_FMT.format(hackathon.votingStart)}"
-        now.isBefore(hackathon.votingEnd)   -> "Voting ends ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
-        else                                -> "Voting ended ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
+        now.isBefore(hackathon.votingStart) -> "Starts ${VOTING_TIME_FMT.format(hackathon.votingStart)}"
+        now.isBefore(hackathon.votingEnd)   -> "Ends ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
+        else                                -> "Ended ${VOTING_TIME_FMT.format(hackathon.votingEnd)}"
     }
     Surface(
         shape = RoundedCornerShape(20.dp),
