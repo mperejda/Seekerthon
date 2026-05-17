@@ -20,13 +20,15 @@ async def _check_hackathon_notifications() -> None:
 
         result = db.table("hackathons") \
             .select("id,title,status,voting_start,voting_end,notifications_sent") \
-            .not_.in_("status", ["draft"]) \
+            .neq("status", "draft") \
             .execute()
 
-        for h in result.data:
+        for h in result.data or []:
             hid = h["id"]
             title = h["title"]
             status = h["status"]
+            if not h.get("voting_start") or not h.get("voting_end"):
+                continue
             voting_start = _parse_dt(h["voting_start"])
             voting_end = _parse_dt(h["voting_end"])
             sent = dict(h.get("notifications_sent") or {})
@@ -37,12 +39,12 @@ async def _check_hackathon_notifications() -> None:
 
             # 1. Voting opened
             if status == "voting" and not sent.get("voting_opened"):
-                result = await notification_service.send_to_hackathon_registrants(
+                dispatch = await notification_service.send_to_hackathon_registrants(
                     hid,
                     "Voting is open!",
                     f"Cast your vote for {title} now.",
                 )
-                if result.delivered:
+                if dispatch.delivered:
                     sent["voting_opened"] = True
                     db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
@@ -50,12 +52,12 @@ async def _check_hackathon_notifications() -> None:
             if status == "voting" and not sent.get("five_hour_warning"):
                 time_left = voting_end - now
                 if timedelta(0) < time_left <= timedelta(hours=5):
-                    result = await notification_service.send_to_hackathon_registrants(
+                    dispatch = await notification_service.send_to_hackathon_registrants(
                         hid,
                         "5 hours left to vote!",
                         f"Don't miss your chance to vote in {title}.",
                     )
-                    if result.delivered:
+                    if dispatch.delivered:
                         sent["five_hour_warning"] = True
                         db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
@@ -67,18 +69,18 @@ async def _check_hackathon_notifications() -> None:
                     .eq("status", "winner") \
                     .maybe_single() \
                     .execute()
-                if winner.data:
-                    result = await notification_service.send_to_hackathon_registrants(
+                if winner and winner.data:
+                    dispatch = await notification_service.send_to_hackathon_registrants(
                         hid,
                         "Winner announced!",
                         f"The winner of {title} has been revealed.",
                     )
-                    if result.delivered:
+                    if dispatch.delivered:
                         sent["winner_announced"] = True
                         db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
     except Exception as exc:
-        _log.error("scheduler: notification check failed err=%s", exc)
+        _log.error("scheduler: notification check failed err=%s", exc, exc_info=True)
 
 
 def start() -> None:
