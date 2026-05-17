@@ -17,7 +17,6 @@ from app.services.solana_service import (
     verify_escrow_account_on_chain,
     verify_program_transaction_on_chain,
 )
-from app.services import notification_service
 
 router = APIRouter()
 
@@ -372,12 +371,6 @@ async def confirm_claim(
 
     db.table("projects").update({"status": "winner"}).eq("id", project_id).execute()
     updated = db.table("hackathons").update({"status": "completed"}).eq("id", hackathon_id).execute()
-    background_tasks.add_task(
-        notification_service.send_to_hackathon_registrants,
-        hackathon_id,
-        "Winner announced!",
-        f"The winner of {hackathon['title']} has been revealed.",
-    )
     background_tasks.add_task(_purge_hackathon_videos, hackathon_id)
     return HackathonResponse(**updated.data[0])
 

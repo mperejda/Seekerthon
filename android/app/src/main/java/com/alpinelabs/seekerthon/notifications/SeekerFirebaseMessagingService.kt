@@ -25,7 +25,7 @@ class SeekerFirebaseMessagingService : FirebaseMessagingService() {
     @Inject lateinit var tokenProvider: TokenProvider
 
     override fun onNewToken(token: String) {
-        val jwt = tokenProvider.getToken() ?: return
+        if (tokenProvider.getToken() == null) return
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { api.registerDeviceToken(DeviceTokenDto(token)) }
         }

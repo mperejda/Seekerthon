@@ -37,25 +37,27 @@ async def _check_hackathon_notifications() -> None:
 
             # 1. Voting opened
             if status == "voting" and not sent.get("voting_opened"):
-                await notification_service.send_to_hackathon_registrants(
+                result = await notification_service.send_to_hackathon_registrants(
                     hid,
                     "Voting is open!",
                     f"Cast your vote for {title} now.",
                 )
-                sent["voting_opened"] = True
-                db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
+                if result.delivered:
+                    sent["voting_opened"] = True
+                    db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
             # 2. 5 hours left
             if status == "voting" and not sent.get("five_hour_warning"):
                 time_left = voting_end - now
                 if timedelta(0) < time_left <= timedelta(hours=5):
-                    await notification_service.send_to_hackathon_registrants(
+                    result = await notification_service.send_to_hackathon_registrants(
                         hid,
                         "5 hours left to vote!",
                         f"Don't miss your chance to vote in {title}.",
                     )
-                    sent["five_hour_warning"] = True
-                    db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
+                    if result.delivered:
+                        sent["five_hour_warning"] = True
+                        db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
             # 3. Winner announced
             if status == "completed" and not sent.get("winner_announced"):
@@ -66,13 +68,14 @@ async def _check_hackathon_notifications() -> None:
                     .maybe_single() \
                     .execute()
                 if winner.data:
-                    await notification_service.send_to_hackathon_registrants(
+                    result = await notification_service.send_to_hackathon_registrants(
                         hid,
                         "Winner announced!",
                         f"The winner of {title} has been revealed.",
                     )
-                    sent["winner_announced"] = True
-                    db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
+                    if result.delivered:
+                        sent["winner_announced"] = True
+                        db.table("hackathons").update({"notifications_sent": sent}).eq("id", hid).execute()
 
     except Exception as exc:
         _log.error("scheduler: notification check failed err=%s", exc)
