@@ -5,6 +5,7 @@ android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+android/app/google-services.json
 android/.kotlin/
 android/META-INF/
 android/.idea/workspace.xml
