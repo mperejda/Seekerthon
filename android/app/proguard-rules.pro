@@ -13,8 +13,8 @@
 -keep class * implements com.google.gson.JsonDeserializer
 
 # DTO / domain models
--keep class com.seeker.hackathon.data.remote.** { *; }
--keep class com.seeker.hackathon.domain.model.** { *; }
+-keep class com.alpinelabs.seekerthon.data.remote.** { *; }
+-keep class com.alpinelabs.seekerthon.domain.model.** { *; }
 
 # OkHttp
 -dontwarn okhttp3.**
