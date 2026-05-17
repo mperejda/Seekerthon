@@ -43,18 +43,11 @@ async def send_to_hackathon_registrants(hackathon_id: str, title: str, body: str
 
     db = get_supabase_admin()
 
-    regs = db.table("hackathon_registrations").select("user_id").eq("hackathon_id", hackathon_id).execute()
-    if not regs.data:
-        return NotificationDispatchResult(delivered=False, reason="no_registrations")
-
-    user_ids = [r["user_id"] for r in regs.data]
-
-    tokens_res = db.table("device_tokens").select("token").in_("user_id", user_ids).execute()
+    tokens_res = db.table("device_tokens").select("token").execute()
     if not tokens_res.data:
         _log.info("notification: no device tokens hackathon=%s", hackathon_id)
         return NotificationDispatchResult(
             delivered=False,
-            recipient_count=len(user_ids),
             reason="no_device_tokens",
         )
 
@@ -74,7 +67,6 @@ async def send_to_hackathon_registrants(hackathon_id: str, title: str, body: str
         )
         return NotificationDispatchResult(
             delivered=delivered,
-            recipient_count=len(user_ids),
             token_count=len(tokens),
             success_count=response.success_count,
             failure_count=response.failure_count,
@@ -84,7 +76,6 @@ async def send_to_hackathon_registrants(hackathon_id: str, title: str, body: str
         _log.error("notification: FCM send failed hackathon=%s err=%s", hackathon_id, exc)
         return NotificationDispatchResult(
             delivered=False,
-            recipient_count=len(user_ids),
             token_count=len(tokens),
             reason="fcm_error",
         )
