@@ -144,10 +144,11 @@ class HackathonListViewModel @Inject constructor(
     private fun List<Hackathon>.filterForActiveVoting(): List<Hackathon> {
         val now = Instant.now()
         return filter { hackathon ->
-            now >= hackathon.votingStart &&
-                now < hackathon.votingEnd &&
-                hackathon.status != "draft" &&
-                hackathon.status != "completed"
+            when (hackathon.status) {
+                "open" -> true  // funded, accepting submissions — show regardless of voting window
+                "voting", "verifying" -> now < hackathon.votingEnd
+                else -> false
+            }
         }
     }
 }

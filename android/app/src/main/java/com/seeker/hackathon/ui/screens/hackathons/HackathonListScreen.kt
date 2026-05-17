@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alpinelabs.seekerthon.domain.model.Hackathon
 import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -111,7 +112,7 @@ fun HackathonListScreen(
                                             if (state.selectedList == HackathonListFilter.Past)
                                                 "No completed hackathons yet"
                                             else
-                                                "No hackathons are voting yet",
+                                                "No active hackathons",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -262,11 +263,13 @@ private fun HackathonCard(
     onClick: () -> Unit,
 ) {
     val formatter = DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault())
+    val now = remember { Instant.now() }
+    val isAcceptingSubmissions = hackathon.status == "open" && now.isBefore(hackathon.votingStart)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(if (!isAcceptingSubmissions) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -276,7 +279,7 @@ private fun HackathonCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(hackathon.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                StatusChip(selectedList = selectedList)
+                StatusChip(selectedList = selectedList, isAcceptingSubmissions = isAcceptingSubmissions)
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -309,10 +312,12 @@ private fun HackathonCard(
 }
 
 @Composable
-private fun StatusChip(selectedList: HackathonListFilter) {
+private fun StatusChip(selectedList: HackathonListFilter, isAcceptingSubmissions: Boolean = false) {
     val (color, label) = when {
         selectedList == HackathonListFilter.Past ->
             Pair(MaterialTheme.colorScheme.secondaryContainer, "Complete")
+        isAcceptingSubmissions ->
+            Pair(MaterialTheme.colorScheme.primaryContainer, "Accepting submissions")
         else ->
             Pair(MaterialTheme.colorScheme.tertiaryContainer, "Voting in progress")
     }
