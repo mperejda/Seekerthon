@@ -19,7 +19,7 @@ async def _check_hackathon_notifications() -> None:
         now = datetime.now(timezone.utc)
 
         result = db.table("hackathons") \
-            .select("id,title,status,voting_end,notifications_sent") \
+            .select("id,title,status,voting_start,voting_end,notifications_sent") \
             .not_.in_("status", ["draft"]) \
             .execute()
 
@@ -27,8 +27,13 @@ async def _check_hackathon_notifications() -> None:
             hid = h["id"]
             title = h["title"]
             status = h["status"]
+            voting_start = _parse_dt(h["voting_start"])
             voting_end = _parse_dt(h["voting_end"])
             sent = dict(h.get("notifications_sent") or {})
+
+            if status == "open" and now >= voting_start and now < voting_end:
+                db.table("hackathons").update({"status": "voting"}).eq("id", hid).execute()
+                status = "voting"
 
             # 1. Voting opened
             if status == "voting" and not sent.get("voting_opened"):

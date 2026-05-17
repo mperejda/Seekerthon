@@ -263,7 +263,7 @@ private fun HackathonCard(
     onClick: () -> Unit,
 ) {
     val formatter = DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault())
-    val now = remember { Instant.now() }
+    val now = Instant.now()
     val isAcceptingSubmissions = hackathon.status == "open" && now.isBefore(hackathon.votingStart)
 
     Card(
