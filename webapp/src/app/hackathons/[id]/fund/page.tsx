@@ -69,20 +69,20 @@ export default function FundEscrowPage({ params }: { params: Promise<{ id: strin
         );
       }
 
-      // Pre-flight simulation on our devnet connection — surfaces real errors with
-      // full program logs before Phantom is ever involved.
+      // Simulate to surface program errors with full logs before Phantom opens.
+      // BlockhashNotFound is a devnet RPC lag issue, not a real error — skip it.
       setFundingStep("Simulating transaction…");
       const simResult = await connection.simulateTransaction(tx);
       if (simResult.value.err) {
-        const logs = (simResult.value.logs ?? []).join("\n");
-        throw new Error(
-          `Simulation failed: ${JSON.stringify(simResult.value.err)}\n\nProgram logs:\n${logs}`
-        );
+        const errStr = JSON.stringify(simResult.value.err);
+        if (!errStr.includes("BlockhashNotFound")) {
+          const logs = (simResult.value.logs ?? []).join("\n");
+          throw new Error(`Simulation failed: ${errStr}\n\nProgram logs:\n${logs}`);
+        }
       }
 
-      // Phantom signs only — no send. Phantom may still show its own simulation
-      // preview, but we've already confirmed validity above. Sending through our
-      // own connection (sendRawTransaction) avoids Phantom's RPC for submission.
+      // Phantom signs only — no send. Sending through our own connection
+      // (sendRawTransaction) avoids Phantom's RPC for submission.
       setFundingStep("Waiting for wallet approval…");
       const signedTx = await signTransaction(tx);
 
