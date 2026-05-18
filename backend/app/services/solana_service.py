@@ -54,6 +54,7 @@ METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt5
 ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
 SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
 ED25519_PROGRAM_ID = Pubkey.from_string("Ed25519SigVerify111111111111111111111111111")
+MEMO_PROGRAM_ID = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
 INSTRUCTIONS_SYSVAR_ID = Pubkey.from_string("Sysvar1nstructions1111111111111111111111111")
 CLAIM_MESSAGE_PREFIX = b"seekerthon-claim:v1"
 BUILDER_PASS_PENDING_TTL = timedelta(minutes=10)
@@ -1489,7 +1490,15 @@ async def build_create_escrow_transaction(
     blockhash_str = bh_resp["result"]["value"]["blockhash"]
     recent_blockhash = Hash.from_string(blockhash_str)
 
-    msg = Message.new_with_blockhash([instruction], organizer, recent_blockhash)
+    prize_display = prize_usdc / 1_000_000
+    memo_text = f"Fund hackathon escrow: {prize_display:,.2f} USDC"
+    memo_ix = Instruction(
+        program_id=MEMO_PROGRAM_ID,
+        accounts=[AccountMeta(pubkey=organizer, is_signer=True, is_writable=False)],
+        data=memo_text.encode("utf-8"),
+    )
+
+    msg = Message.new_with_blockhash([memo_ix, instruction], organizer, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
     tx.partial_sign([platform_admin_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
