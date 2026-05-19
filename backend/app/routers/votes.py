@@ -150,24 +150,25 @@ async def confirm_vote(body: VoteConfirmRequest, request: Request):
         log.error("Signature verification error: %s", exc)
         raise HTTPException(status_code=400, detail="Malformed wallet address or signature")
 
-    # Insert vote
-    vote_data = {
-        "voter_id": user_id,
-        "project_id": str(body.project_id),
-        "weight": vote_weight,
-        "tx_signature": body.tx_signature,
-    }
-    result = db.table("votes").insert(vote_data).execute()
+    try:
+        result = db.rpc("record_vote", {
+            "p_voter_id": user_id,
+            "p_project_id": str(body.project_id),
+            "p_weight": vote_weight,
+            "p_tx_signature": body.tx_signature,
+        }).execute()
+    except Exception as exc:
+        detail = str(exc)
+        if "duplicate key" in detail or "votes_voter_id_project_id_key" in detail:
+            raise HTTPException(status_code=409, detail="Already voted for this project")
+        raise HTTPException(status_code=500, detail="Could not record vote") from exc
 
-    # Clean up pending vote and update project tally
+    # Clean up pending vote after the atomic vote insert + tally update succeeds.
     db.table("pending_votes").delete() \
         .eq("voter_id", user_id).eq("project_id", str(body.project_id)).execute()
-    db.rpc("increment_vote_count", {
-        "p_project_id": str(body.project_id),
-        "p_weight": vote_weight,
-    }).execute()
 
-    return VoteResponse(**result.data[0])
+    vote_row = result.data[0] if isinstance(result.data, list) else result.data
+    return VoteResponse(**vote_row)
 
 
 @router.get("/mine", response_model=List[str])

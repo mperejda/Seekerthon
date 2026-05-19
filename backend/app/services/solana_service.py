@@ -1055,6 +1055,34 @@ def _owner_token_delta(tx_data: dict[str, Any], mint: str, owner: str) -> int:
     return total("postTokenBalances") - total("preTokenBalances")
 
 
+async def verify_registration_fee_payment_on_chain(
+    tx_signature: str,
+    payer_wallet: str,
+    expected_amount: int,
+) -> bool:
+    """Confirm the registration tx paid the configured USDC fee to the treasury."""
+    if expected_amount <= 0:
+        return True
+    treasury = _settings.builder_pass_treasury
+    if not treasury:
+        _log.error("Registration fee is enabled but BUILDER_PASS_TREASURY is not configured")
+        return False
+
+    tx_data = await fetch_confirmed_transaction(tx_signature, rpc_url=RPC_URL)
+    if payer_wallet not in _tx_signers(tx_data):
+        return False
+
+    treasury_delta = _owner_token_delta(tx_data, ESCROW_USDC_MINT, treasury)
+    payer_delta = _owner_token_delta(tx_data, ESCROW_USDC_MINT, payer_wallet)
+    _log.info(
+        "Registration fee check: payer_delta=%d treasury_delta=%d expected=%d",
+        payer_delta,
+        treasury_delta,
+        expected_amount,
+    )
+    return treasury_delta >= expected_amount and payer_delta <= -expected_amount
+
+
 def validate_builder_pass_mint_transaction(
     tx_data: dict[str, Any],
     buyer_wallet: str,

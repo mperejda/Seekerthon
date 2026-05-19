@@ -9,6 +9,7 @@ from app.db import get_supabase_admin
 
 _log = logging.getLogger(__name__)
 _firebase_app = None
+_MAX_FCM_TOKENS_PER_MULTICAST = 500
 
 
 @dataclass(frozen=True)
@@ -53,23 +54,30 @@ async def send_to_hackathon_registrants(hackathon_id: str, title: str, body: str
 
     tokens = [t["token"] for t in tokens_res.data]
 
-    message = messaging.MulticastMessage(
-        notification=messaging.Notification(title=title, body=body),
-        tokens=tokens,
-        android=messaging.AndroidConfig(priority="high"),
-    )
     try:
-        response = messaging.send_each_for_multicast(message)
-        delivered = response.success_count > 0
+        success_count = 0
+        failure_count = 0
+        for i in range(0, len(tokens), _MAX_FCM_TOKENS_PER_MULTICAST):
+            batch = tokens[i:i + _MAX_FCM_TOKENS_PER_MULTICAST]
+            message = messaging.MulticastMessage(
+                notification=messaging.Notification(title=title, body=body),
+                tokens=batch,
+                android=messaging.AndroidConfig(priority="high"),
+            )
+            response = messaging.send_each_for_multicast(message)
+            success_count += response.success_count
+            failure_count += response.failure_count
+
+        delivered = success_count > 0
         _log.info(
             "notification: sent hackathon=%s success=%d failure=%d",
-            hackathon_id, response.success_count, response.failure_count,
+            hackathon_id, success_count, failure_count,
         )
         return NotificationDispatchResult(
             delivered=delivered,
             token_count=len(tokens),
-            success_count=response.success_count,
-            failure_count=response.failure_count,
+            success_count=success_count,
+            failure_count=failure_count,
             reason=None if delivered else "no_successful_deliveries",
         )
     except Exception as exc:

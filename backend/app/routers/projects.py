@@ -3,6 +3,8 @@ import uuid as uuid_module
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
 from typing import List
+from botocore.exceptions import ClientError
+from app.constants import MAX_VIDEO_UPLOAD_BYTES
 from app.db import get_supabase_admin
 from app.models.schemas import (
     ProjectSubmit, ProjectResponse, RegistrationTxResponse, VerifyReleaseRequest,
@@ -177,6 +179,34 @@ async def confirm_video_upload(project_id: str, body: AssetConfirmRequest, reque
         raise HTTPException(status_code=404, detail="Project not found")
     if str(project.data["team_lead_id"]) != request.state.user_id:
         raise HTTPException(status_code=403, detail="Not the project owner")
+
+    expected_prefix = f"projects/{project_id}/"
+    if not body.key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid video upload key")
+
+    try:
+        metadata = r2_service.head_object(body.key)
+    except ClientError:
+        raise HTTPException(status_code=400, detail="Uploaded video was not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not validate uploaded video: {exc}")
+
+    size = int(metadata.get("ContentLength") or 0)
+    content_type = (metadata.get("ContentType") or "").split(";", 1)[0].strip().lower()
+    if size <= 0:
+        raise HTTPException(status_code=400, detail="Uploaded video is empty")
+    if size > MAX_VIDEO_UPLOAD_BYTES:
+        try:
+            r2_service.delete_object(body.key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=413, detail="Demo video must be 50MB or smaller")
+    if content_type != "video/mp4":
+        try:
+            r2_service.delete_object(body.key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="Only video/mp4 uploads are supported")
 
     safe = await moderation_service.is_video_safe(body.key)
     if not safe:

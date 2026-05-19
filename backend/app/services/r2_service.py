@@ -49,6 +49,10 @@ def delete_object(key: str) -> None:
     _client().delete_object(Bucket=get_settings().r2_bucket_name, Key=key)
 
 
+def head_object(key: str) -> dict:
+    return _client().head_object(Bucket=get_settings().r2_bucket_name, Key=key)
+
+
 def download_bytes(key: str) -> bytes:
     resp = _client().get_object(Bucket=get_settings().r2_bucket_name, Key=key)
     return resp["Body"].read()

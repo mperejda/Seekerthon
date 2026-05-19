@@ -13,6 +13,7 @@ from app.models.schemas import (
 from app.services.solana_service import (
     build_register_project_transaction,
     derive_project_record_pda,
+    verify_registration_fee_payment_on_chain,
     verify_program_transaction_on_chain,
 )
 
@@ -125,6 +126,15 @@ async def confirm_registration(hackathon_id: str, body: RegistrationConfirmReque
                 status_code=400,
                 detail="Registration transaction not confirmed on-chain",
             )
+        fee = get_settings().registration_fee_usdc
+        if fee > 0:
+            paid = await verify_registration_fee_payment_on_chain(
+                body.tx_signature,
+                request.state.wallet_address,
+                fee,
+            )
+            if not paid:
+                raise HTTPException(status_code=402, detail="Registration fee payment not confirmed on-chain")
         onchain_pda = project_record_pda
 
     user = db.table("users").select("wallet_address").eq("id", request.state.user_id).single().execute()

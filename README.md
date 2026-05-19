@@ -38,7 +38,7 @@ Supabase provides Postgres for structured data, Realtime subscriptions for live 
 | On-chain programs | Anchor (Rust) — `cast_vote` and `release_prize` instructions |
 | Python ↔ Solana | `solders` + `anchorpy` |
 | Backend | FastAPI + Pydantic v2 |
-| Database / Realtime / Storage | Supabase Postgres, Realtime, Storage, Edge Functions |
+| Database / Realtime / Storage | Supabase Postgres, Realtime, Storage |
 | Android UI | Jetpack Compose + Hilt + Retrofit |
 | Web UI | Next.js 14 + TypeScript |
 
@@ -162,10 +162,6 @@ weight = min(1 + log2(1 + staked_skr / 100), 5.0)
    ```
    Or paste `supabase/migrations/001_initial_schema.sql` into the SQL editor.
 3. Copy your project URL, anon key, and service role key.
-4. Deploy the edge function:
-   ```
-   supabase functions deploy verify-webhook
-   ```
 
 ---
 
@@ -282,6 +278,8 @@ seeker-hackathon/
     └── functions/verify-webhook/index.ts
 ```
 
+`supabase/functions/verify-webhook` is kept only as a deprecated stub. Winner state is finalized by the backend after on-chain claim/refund verification.
+
 ## Key flows
 
 **Login (Android)**
@@ -303,7 +301,6 @@ seeker-hackathon/
 
 **Prize release (Web)**
 1. Organizer reviews leaderboard on dashboard
-2. Organizer clicks "Verify & Release Prize" on winning project
-3. Backend marks project as winner, hackathon as completed
-4. Edge function fires push notification to voters
-5. (Production) Backend calls Solana escrow program to release funds
+2. Winning team signs the backend-built claim transaction
+3. Backend verifies the on-chain claim, marks the project as winner, and marks the hackathon completed
+4. Backend scheduler sends global push notifications to Seeker voters

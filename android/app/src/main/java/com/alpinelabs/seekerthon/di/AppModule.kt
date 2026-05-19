@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.alpinelabs.seekerthon.BuildConfig
 import com.alpinelabs.seekerthon.data.remote.SeekerApi
 import dagger.Module
 import dagger.Provides
@@ -24,7 +25,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    private const val BASE_URL = com.alpinelabs.seekerthon.BuildConfig.BASE_URL
+    private const val BASE_URL = BuildConfig.BASE_URL
 
     @Provides
     @Singleton
@@ -45,9 +46,14 @@ object AppModule {
         }
         return OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
-            })
+            .apply {
+                if (BuildConfig.DEBUG) {
+                    addInterceptor(HttpLoggingInterceptor().apply {
+                        redactHeader("Authorization")
+                        level = HttpLoggingInterceptor.Level.BODY
+                    })
+                }
+            }
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
