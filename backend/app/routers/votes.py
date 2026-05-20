@@ -11,6 +11,7 @@ from app.models.schemas import VotePrepareRequest, VotePrepareResponse, VoteConf
 from app.services.solana_service import (
     get_skr_balance,
     compute_vote_weight,
+    verify_builder_pass_holder,
     verify_seeker_genesis_holder,
 )
 
@@ -24,8 +25,10 @@ def _parse_dt(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def _build_vote_message(project_id: str, wallet: str, weight_bps: int, expires_unix: int) -> str:
-    return f"seeker-vote:v1:{project_id}:{wallet}:{weight_bps}:{expires_unix}"
+def _build_vote_message(hackathon_id: str, project_id: str, wallet: str, weight_bps: int, expires_unix: int) -> str:
+    # v2 binds the message to a specific hackathon so a signed vote for one
+    # hackathon cannot be replayed against a project re-using the same id.
+    return f"seeker-vote:v2:{hackathon_id}:{project_id}:{wallet}:{weight_bps}:{expires_unix}"
 
 
 @router.post("/prepare", response_model=VotePrepareResponse)
@@ -39,11 +42,10 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     user_id = request.state.user_id
     wallet = request.state.wallet_address
 
-    # Fast path: use the flags cached at login time.
-    # Fall back to a live mainnet check if the DB says False for Genesis.
-    user_row = db.table("users").select("is_seeker_verified,has_builder_pass").eq("id", user_id).maybe_single().execute()
+    # Fast path: use the cached is_seeker_verified flag, fall back to a live
+    # mainnet check if False.
+    user_row = db.table("users").select("is_seeker_verified").eq("id", user_id).maybe_single().execute()
     is_verified = (user_row.data or {}).get("is_seeker_verified", False)
-    has_builder_pass = (user_row.data or {}).get("has_builder_pass", False)
     if not is_verified:
         try:
             is_verified = await verify_seeker_genesis_holder(wallet)
@@ -54,6 +56,18 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
             db.table("users").update({"is_seeker_verified": True}).eq("id", user_id).execute()
     if not is_verified:
         raise HTTPException(status_code=403, detail="Must hold a Seeker Genesis NFT to vote")
+
+    # Builder Pass is always re-checked live: the 5x multiplier is too valuable
+    # to honour against a cached flag a user could obtain by minting then
+    # transferring the NFT to another wallet. Failure is treated as "no pass"
+    # (the user still gets to vote at the unboosted weight).
+    try:
+        has_builder_pass = await verify_builder_pass_holder(wallet)
+    except Exception as exc:
+        log.warning("Builder pass live check failed for %s, defaulting to False: %s", wallet, exc)
+        has_builder_pass = False
+    # Keep the cached flag in sync so /users/me reflects what the vote saw.
+    db.table("users").update({"has_builder_pass": has_builder_pass}).eq("id", user_id).execute()
 
     # DB-level duplicate guard
     existing = db.table("votes").select("id") \
@@ -78,16 +92,18 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     if now < _parse_dt(hackathon.data["voting_start"]) or now >= _parse_dt(hackathon.data["voting_end"]):
         raise HTTPException(status_code=400, detail="Hackathon is not in the voting window")
 
-    # Compute and lock vote weight now — not at confirm time
-    skr_balance, skr_staked = await get_skr_balance(wallet)
-    effective_skr = skr_balance + skr_staked
-    vote_weight = compute_vote_weight(effective_skr, has_builder_pass)
+    # Compute and lock vote weight now — not at confirm time.
+    # Only on-chain *staked* SKR counts: liquid balance is ignored on purpose
+    # so a whale can't split tokens across multiple wallets for free influence.
+    _, skr_staked = await get_skr_balance(wallet)
+    vote_weight = compute_vote_weight(skr_staked, has_builder_pass)
     vote_weight_bps = int(vote_weight * 10000)
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=_VOTE_TTL_MINUTES)
     expires_unix = int(expires_at.timestamp())
 
-    vote_message = _build_vote_message(str(body.project_id), wallet, vote_weight_bps, expires_unix)
+    hackathon_id = project.data["hackathon_id"]
+    vote_message = _build_vote_message(str(hackathon_id), str(body.project_id), wallet, vote_weight_bps, expires_unix)
     log.info("Vote prepare: voter=%s project=%s weight_bps=%d msg=%s", user_id, body.project_id, vote_weight_bps, vote_message)
 
     db.table("pending_votes").upsert({
@@ -100,7 +116,7 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     return VotePrepareResponse(
         vote_message=vote_message,
         vote_weight=vote_weight,
-        voter_skr_staked=effective_skr,
+        voter_skr_staked=skr_staked,
         expires_at=expires_at,
     )
 
@@ -131,8 +147,13 @@ async def confirm_vote(body: VoteConfirmRequest, request: Request):
     weight_bps = int(vote_weight * 10000)
     expires_unix = int(_parse_dt(pending.data["expires_at"]).timestamp())
 
+    project = db.table("projects").select("hackathon_id").eq("id", str(body.project_id)).maybe_single().execute()
+    if not project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    hackathon_id = project.data["hackathon_id"]
+
     # Reconstruct and verify the message matches what was sent
-    expected_message = _build_vote_message(str(body.project_id), wallet, weight_bps, expires_unix)
+    expected_message = _build_vote_message(str(hackathon_id), str(body.project_id), wallet, weight_bps, expires_unix)
     if body.vote_message != expected_message:
         log.warning("Vote message mismatch: expected=%s got=%s", expected_message, body.vote_message)
         raise HTTPException(status_code=400, detail="Vote message does not match pending vote")

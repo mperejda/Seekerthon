@@ -316,6 +316,8 @@ def compute_vote_weight(skr_staked: int, has_builder_pass: bool = False) -> floa
     """
     Weight formula: 1 + log2(1 + staked / SKR_PER_STEP), capped at MAX_MULTIPLIER.
     Builder Pass multiplies the result by 5x (capped at MAX_MULTIPLIER * 5).
+    Only on-chain *staked* SKR counts — liquid balance does not contribute, so
+    influence requires lock-up rather than just holding tokens.
     """
     raw = 1.0 + math.log2(1.0 + skr_staked / SKR_PER_STEP)
     base = round(min(raw, MAX_MULTIPLIER), 4)
@@ -995,12 +997,21 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     return tx_b64
 
 
-async def fetch_confirmed_transaction(tx_signature: str, rpc_url: str = MAINNET_RPC_URL) -> dict[str, Any]:
-    """Fetch a confirmed transaction as jsonParsed RPC data."""
+async def fetch_confirmed_transaction(
+    tx_signature: str,
+    rpc_url: str = MAINNET_RPC_URL,
+    commitment: str = "confirmed",
+) -> dict[str, Any]:
+    """Fetch a confirmed transaction as jsonParsed RPC data.
+
+    Use commitment='finalized' for trust-critical operations (prize claim,
+    organizer refund) where a fork/reorg flipping DB state would be a problem.
+    'confirmed' is fine for everything else.
+    """
     for _ in range(5):
         resp = await _rpc_post(
             "getTransaction",
-            [tx_signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+            [tx_signature, {"encoding": "jsonParsed", "commitment": commitment, "maxSupportedTransactionVersion": 0}],
             rpc_url=rpc_url,
         )
         tx_data = resp.get("result")
@@ -1821,8 +1832,9 @@ async def verify_program_transaction_on_chain(
     expected_signer: str,
     required_accounts: list[str],
     instruction_name: str,
+    commitment: str = "confirmed",
 ) -> bool:
-    tx = await fetch_confirmed_transaction(tx_signature, rpc_url=RPC_URL)
+    tx = await fetch_confirmed_transaction(tx_signature, rpc_url=RPC_URL, commitment=commitment)
     if expected_signer not in _tx_signers(tx):
         return False
     return _has_program_instruction(

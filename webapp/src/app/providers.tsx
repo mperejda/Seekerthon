@@ -33,38 +33,22 @@ function AuthGate({ children }: { children: ReactNode }) {
   // undefined = auth check in progress, null = confirmed no session, SeekerUser = logged in
   const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
 
-  // Restore session from JWT on mount — no wallet interaction needed
+  // Restore session from the httpOnly cookie on mount. We never read the JWT
+  // directly in the browser — the cookie is set by /users/login and sent
+  // automatically by credentials: 'include'.
   useEffect(() => {
-    const token = localStorage.getItem("seeker_token");
-    if (!token) { setUser(null); return; }
-    fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => {
-        if (!r.ok) {
-          // Token expired or invalid — clear it
-          localStorage.removeItem("seeker_token");
-          return null;
-        }
-        return r.json();
-      })
+    fetch(`${API}/users/me`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
       .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
       .catch(() => setUser(null));
   }, []);
 
-  // Sign challenge when wallet connects and no valid session exists.
-  // If the connected wallet changed but there's still a token for a different wallet,
-  // clear the stale token so the user re-authenticates with the current wallet.
+  // Sign challenge when wallet connects and no valid session exists, or when
+  // the connected wallet differs from the one in the current cookie.
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
-    const existingToken = localStorage.getItem("seeker_token");
-    if (existingToken) {
-      // If we already have a resolved user AND the wallet matches, nothing to do.
-      // If user is undefined (still loading) don't disrupt the in-progress check.
-      if (user === undefined) return;
-      if (user !== null && user.wallet_address === publicKey.toBase58()) return;
-      // Wallet changed — clear stale session and re-auth with the new wallet.
-      localStorage.removeItem("seeker_token");
-      setUser(null);
-    }
+    if (user === undefined) return; // still resolving session
+    if (user !== null && user.wallet_address === publicKey.toBase58()) return;
 
     authing.current = true;
     (async () => {
@@ -75,11 +59,14 @@ function AuthGate({ children }: { children: ReactNode }) {
         const sig = await signMessage(new TextEncoder().encode(challenge));
         const loginRes = await fetch(`${API}/users/login`, {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ wallet_address: walletAddress, signature: encodeBase58(sig), challenge }),
         });
+        if (!loginRes.ok) throw new Error(`login failed: ${loginRes.status}`);
         const data = await loginRes.json();
-        localStorage.setItem("seeker_token", data.access_token);
+        // access_token is returned for parity with the mobile client but the
+        // webapp deliberately ignores it — the cookie is the source of truth.
         setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
       } catch (e) {
         console.error("Wallet auth failed", e);

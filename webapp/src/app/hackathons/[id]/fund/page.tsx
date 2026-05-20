@@ -44,12 +44,10 @@ export default function FundEscrowPage({ params }: { params: Promise<{ id: strin
     setFundingStep(null);
     setError(null);
     try {
-      const token = localStorage.getItem("seeker_token");
-
       // Fetch a fresh unsigned tx (blockhash expires in ~60s so fetch on click)
       setFundingStep("Building transaction…");
       const txRes = await fetch(`${API}/hackathons/${hackathonId}/create-escrow-tx`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!txRes.ok) throw new Error((await txRes.json()).detail);
       const { transaction_b64, escrow_pda } = await txRes.json();
@@ -98,9 +96,9 @@ export default function FundEscrowPage({ params }: { params: Promise<{ id: strin
       // Register escrow with backend → hackathon moves to "open"
       const patchRes = await fetch(`${API}/hackathons/${hackathonId}/escrow`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ escrow_pubkey: escrow_pda, onchain_pda: escrow_pda }),
       });

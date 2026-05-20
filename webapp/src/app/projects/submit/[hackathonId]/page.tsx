@@ -82,7 +82,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const [done, setDone] = useState<"registered" | "submitted" | null>(null);
   const [submittedProjectName, setSubmittedProjectName] = useState<string | null>(null);
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("seeker_token") : null;
+  const isLoggedIn = !!user;
 
   useEffect(() => {
     let cancelled = false;
@@ -95,14 +95,14 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         if (cancelled) return;
         setHackathon(h);
 
-        if (!token) {
+        if (!isLoggedIn) {
           setRegStatus(null);
           return;
         }
 
         try {
           const reg = await fetchJson<RegistrationStatus>(`${API}/hackathons/${hackathonId}/registration`, {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           });
           if (cancelled) return;
           setRegStatus(reg);
@@ -110,7 +110,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           if (reg.is_registered && reg.registration?.project_id) {
             try {
               const proj = await fetchJson<Project>(`${API}/projects/${reg.registration.project_id}`, {
-                headers: { Authorization: `Bearer ${token}` },
+                credentials: "include",
               });
               if (!cancelled && ["submitted", "approved", "winner"].includes(proj.status)) {
                 setSubmittedProjectName(proj.name || null);
@@ -138,14 +138,14 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
     return () => {
       cancelled = true;
     };
-  }, [hackathonId, token]);
+  }, [hackathonId, isLoggedIn]);
 
   const handleRegister = async () => {
     setLoading(true);
     setError(null);
     try {
       const prepRes = await fetch(`${API}/hackathons/${hackathonId}/register-tx`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
       const { transaction_b64, project_id } = await prepRes.json();
@@ -170,7 +170,8 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
       setStepStatus("Locking in your spot…");
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ project_id, tx_signature }),
       });
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
@@ -196,7 +197,8 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
       setStepStatus("Saving project details…");
       const res = await fetch(`${API}/projects/${projectId}/submit`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name,
           description: form.description,
@@ -223,7 +225,8 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         setStepStatus("Finalizing submission…");
         const confirmRes = await fetch(`${API}/projects/${projectId}/submit/confirm`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tx_signature: txSig }),
         });
         if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
@@ -233,7 +236,8 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         setStepStatus("Requesting upload URL…");
         const urlRes = await fetch(`${API}/projects/${projectId}/video-upload-url`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ filename: videoFile.name, content_type: "video/mp4" }),
         });
         if (!urlRes.ok) throw new Error((await urlRes.json()).detail);
@@ -250,7 +254,8 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         setStepStatus("Verifying video content…");
         const confirmRes = await fetch(`${API}/projects/${projectId}/video-confirm`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ key }),
         });
         if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);

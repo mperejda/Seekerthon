@@ -95,7 +95,6 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [refunding, setRefunding] = useState(false);
-  const [statusUpdating, setStatusUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -131,31 +130,12 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
   const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
   const isOrganizer = !!hackathon && user.id === hackathon.organizer_id;
 
-  const setStatus = async (status: string) => {
-    setStatusUpdating(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API}/hackathons/${hackathonId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("seeker_token")}` },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail);
-      setHackathon(await res.json());
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setStatusUpdating(false);
-    }
-  };
-
   const claimPrize = async (projectId: string) => {
     setClaiming(projectId);
     setError(null);
-    const token = localStorage.getItem("seeker_token");
     try {
       const prepRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}/tx`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
       const { transaction_b64 } = await prepRes.json();
@@ -168,7 +148,8 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tx_signature: txSignature }),
       });
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
@@ -184,10 +165,9 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
   const refundOrganizer = async () => {
     setRefunding(true);
     setError(null);
-    const token = localStorage.getItem("seeker_token");
     try {
       const prepRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund/release-tx`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!prepRes.ok) throw new Error((await prepRes.json()).detail);
       const { transaction_b64 } = await prepRes.json();
@@ -200,7 +180,8 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tx_signature: txSignature }),
       });
       if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);

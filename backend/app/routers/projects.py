@@ -1,7 +1,5 @@
-import os
-import uuid as uuid_module
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from typing import List
 from botocore.exceptions import ClientError
 from app.constants import MAX_VIDEO_UPLOAD_BYTES
@@ -126,28 +124,6 @@ async def confirm_submit(project_id: str, body: SubmitConfirmRequest, request: R
 
     result = db.table("projects").update({"status": "submitted"}).eq("id", project_id).execute()
     return ProjectResponse(**result.data[0])
-
-
-@router.post("/{project_id}/assets")
-async def upload_asset(project_id: str, file: UploadFile = File(...), request: Request = None):
-    """Upload demo video or screenshot to Supabase Storage."""
-    db = get_supabase_admin()
-    project = db.table("projects").select("*").eq("id", project_id).single().execute()
-    if not project.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if str(project.data["team_lead_id"]) != request.state.user_id:
-        raise HTTPException(status_code=403, detail="Not the project owner")
-
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    safe_name = f"{uuid_module.uuid4()}{ext}"
-    path = f"{project_id}/{safe_name}"
-
-    content = await file.read()
-    db.storage.from_("project-assets").upload(path, content, {"content-type": file.content_type})
-
-    asset_ids = project.data.get("storage_asset_ids", []) + [path]
-    db.table("projects").update({"storage_asset_ids": asset_ids}).eq("id", project_id).execute()
-    return {"path": path}
 
 
 @router.post("/{project_id}/video-upload-url", response_model=AssetUploadUrlResponse)

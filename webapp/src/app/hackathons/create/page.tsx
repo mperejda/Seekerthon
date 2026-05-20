@@ -42,12 +42,11 @@ export default function CreateHackathonPage() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("seeker_token");
       const res = await fetch(`${API}/hackathons/`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: form.title,

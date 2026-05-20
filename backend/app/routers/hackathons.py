@@ -4,7 +4,7 @@ from typing import List, Optional
 from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
 from app.models.schemas import (
-    HackathonCreate, HackathonUpdate, HackathonResponse, EscrowSetRequest,
+    HackathonCreate, HackathonResponse, EscrowSetRequest,
     HackathonStatus, LeaderboardEntry, ProjectResponse,
     ClaimTxResponse, ReleaseTxResponse, VerifyReleaseRequest,
 )
@@ -87,19 +87,6 @@ async def create_hackathon(body: HackathonCreate, request: Request):
         "status": "draft",
     }
     result = db.table("hackathons").insert(data).execute()
-    return HackathonResponse(**result.data[0])
-
-
-@router.patch("/{hackathon_id}/status", response_model=HackathonResponse)
-async def set_status(hackathon_id: str, body: HackathonUpdate, request: Request):
-    """Organizer manually advances hackathon status (for dev/no-escrow flows)."""
-    db = get_supabase_admin()
-    _assert_organizer(db, hackathon_id, request.state.user_id)
-    if not body.status:
-        raise HTTPException(status_code=400, detail="status is required")
-    if body.status.value != "completed":
-        _assert_no_other_active_hackathon(db, exclude_id=hackathon_id)
-    result = db.table("hackathons").update({"status": body.status}).eq("id", hackathon_id).execute()
     return HackathonResponse(**result.data[0])
 
 
@@ -288,11 +275,15 @@ async def verify_and_refund(
                 status_code=400,
                 detail="tx_signature required — sign the refund transaction first",
             )
+        # finalized commitment: a fork-and-reorg of an only-confirmed refund
+        # would leave the DB marked completed while the funds returned to
+        # escrow, blocking legitimate later refunds.
         verified = await verify_program_transaction_on_chain(
             body.tx_signature,
             request.state.wallet_address,
             [hackathon["escrow_pubkey"]],
             "refund_escrow",
+            commitment="finalized",
         )
         if not verified:
             raise HTTPException(status_code=400, detail="Refund transaction not confirmed on-chain")
@@ -360,11 +351,13 @@ async def confirm_claim(
     if str(winner["team_lead_id"]) != request.state.user_id:
         raise HTTPException(status_code=403, detail="Only the winning team lead can claim")
 
+    # finalized commitment so a reorg can't roll back a "winner" assignment.
     verified = await verify_program_transaction_on_chain(
         body.tx_signature,
         request.state.wallet_address,
         [hackathon["escrow_pubkey"], winner["onchain_pda"]],
         "claim_prize",
+        commitment="finalized",
     )
     if not verified:
         raise HTTPException(status_code=400, detail="Claim transaction not confirmed on-chain")

@@ -127,7 +127,12 @@ async def prepare_builder_pass_mint(request: Request):
 
 @router.post("/builder-pass/claim", response_model=MintConfirmResponse)
 async def claim_builder_pass(request: Request, body: ClaimRequest):
-    """Submit the buyer payment, verify it, then mint the Builder Pass server-side."""
+    """Submit the buyer payment, verify it, then mint the Builder Pass server-side.
+
+    The flow is idempotent on payment_tx_signature: if the on-chain mint
+    succeeded but a later step failed, the caller can retry with the same
+    payment and we'll reconcile rather than double-mint.
+    """
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
@@ -136,6 +141,27 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
     try:
         await _require_builder_pass_mint_available()
         payment_sig = await submit_and_confirm_transaction(body.signed_tx_b64)
+
+        # Idempotency gate: if we already have a ledger row for this payment
+        # signature, treat the call as a retry of a partially-completed mint.
+        existing_res = (
+            db.table("builder_pass_mints")
+            .select("*")
+            .eq("payment_tx_signature", payment_sig)
+            .maybe_single()
+            .execute()
+        )
+        existing = existing_res.data if existing_res else None
+        if existing:
+            if str(existing["user_id"]) != request.state.user_id:
+                raise HTTPException(status_code=409, detail="Payment already used by another account")
+            db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
+            _log.info(
+                "Builder pass claim is a retry — reusing existing mint user=%s mint=%s payment=%s",
+                request.state.user_id, existing["mint_pubkey"], payment_sig,
+            )
+            return MintConfirmResponse(success=True, tx_signature=existing["mint_tx_signature"])
+
         tx_data = await verify_usdc_payment(payment_sig, request.state.wallet_address, price)
         if not tx_data:
             raise HTTPException(status_code=402, detail="USDC payment not confirmed on-chain")
@@ -144,17 +170,34 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         if treasury_received < price:
             raise HTTPException(status_code=402, detail="Insufficient USDC payment")
 
-        mint_pubkey, mint_sig = await mint_nft_server_side(request.state.wallet_address)
-        mint_cost = await _builder_pass_mint_cost_snapshot(mint_sig)
-
+        # Reserve the payment signature BEFORE the on-chain mint so a crash
+        # between mint_nft_server_side() and the final insert below can be
+        # reconciled by manual ops — the next retry will hit the idempotency
+        # gate above instead of double-minting.
         db.table("builder_pass_mints").insert(
             {
                 "user_id": request.state.user_id,
                 "wallet_address": request.state.wallet_address,
-                "mint_pubkey": mint_pubkey,
-                "mint_tx_signature": mint_sig,
+                "mint_pubkey": "",
+                "mint_tx_signature": payment_sig,  # placeholder; replaced after mint
+                "payment_tx_signature": payment_sig,
                 "price_usdc_raw": price,
                 "treasury_usdc_received_raw": treasury_received,
+                "status": "reconciled_error",       # promoted to 'confirmed' below
+                "raw_transaction_json": {
+                    "payment_tx_signature": payment_sig,
+                    "payment_transaction": tx_data,
+                },
+            }
+        ).execute()
+
+        mint_pubkey, mint_sig = await mint_nft_server_side(request.state.wallet_address)
+        mint_cost = await _builder_pass_mint_cost_snapshot(mint_sig)
+
+        db.table("builder_pass_mints").update(
+            {
+                "mint_pubkey": mint_pubkey,
+                "mint_tx_signature": mint_sig,
                 "mint_sol_spent_lamports": mint_cost["mint_sol_spent_lamports"],
                 "mint_sol_spent_usd": mint_cost["mint_sol_spent_usd"],
                 "sol_usd_price_at_mint": mint_cost["sol_usd_price_at_mint"],
@@ -167,7 +210,7 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
                     "mint_transaction": mint_cost["mint_transaction"],
                 },
             }
-        ).execute()
+        ).eq("payment_tx_signature", payment_sig).execute()
 
     except HTTPException:
         raise
