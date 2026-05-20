@@ -50,6 +50,7 @@ class VotingFeedViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val hackathonId: String = checkNotNull(savedStateHandle["hackathonId"])
+    private val leaderboardOnly: Boolean = savedStateHandle["leaderboardOnly"] ?: false
 
     // Set once getMe() resolves; used to scope finished-voting state per user
     private var walletAddress: String = ""
@@ -68,7 +69,14 @@ class VotingFeedViewModel @Inject constructor(
             try {
                 val projects = api.listProjects(hackathonId).map { it.toProject() }
                 val hackathon = try { api.getHackathon(hackathonId).toHackathon() } catch (_: Exception) { null }
-                _state.value = _state.value.copy(projects = projects, hackathon = hackathon, isLoading = false)
+                _state.value = _state.value.copy(
+                    projects = projects,
+                    hackathon = hackathon,
+                    hasFinishedVoting = _state.value.hasFinishedVoting ||
+                        leaderboardOnly ||
+                        hackathon?.status == "completed",
+                    isLoading = false,
+                )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -84,7 +92,15 @@ class VotingFeedViewModel @Inject constructor(
             try {
                 val projects = api.listProjects(hackathonId).map { it.toProject() }
                 val voted = try { api.getMyVotes().toSet() } catch (_: Exception) { _state.value.votedProjectIds }
-                _state.value = _state.value.copy(projects = projects, votedProjectIds = voted, isRefreshing = false)
+                val hackathon = _state.value.hackathon
+                _state.value = _state.value.copy(
+                    projects = projects,
+                    votedProjectIds = voted,
+                    hasFinishedVoting = _state.value.hasFinishedVoting ||
+                        leaderboardOnly ||
+                        hackathon?.status == "completed",
+                    isRefreshing = false,
+                )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isRefreshing = false,
@@ -103,7 +119,9 @@ class VotingFeedViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     userMultiplier = user.vote_multiplier,
                     isSeekerVerified = user.is_seeker_verified,
-                    hasFinishedVoting = finishedKey() in finished,
+                    hasFinishedVoting = _state.value.hasFinishedVoting ||
+                        leaderboardOnly ||
+                        finishedKey() in finished,
                     isUserStateLoaded = true,
                 )
             } catch (_: Exception) {

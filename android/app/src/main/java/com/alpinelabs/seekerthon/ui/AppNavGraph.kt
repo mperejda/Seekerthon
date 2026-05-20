@@ -13,8 +13,8 @@ import com.alpinelabs.seekerthon.ui.screens.login.LoginScreen
 object Routes {
     const val LOGIN = "login"
     const val HACKATHONS = "hackathons"
-    const val VOTING_FEED = "feed/{hackathonId}"
-    fun votingFeed(id: String) = "feed/$id"
+    const val VOTING_FEED = "feed/{hackathonId}?leaderboardOnly={leaderboardOnly}"
+    fun votingFeed(id: String, leaderboardOnly: Boolean = false) = "feed/$id?leaderboardOnly=$leaderboardOnly"
 }
 
 @Composable
@@ -35,8 +35,8 @@ fun AppNavGraph() {
 
         composable(Routes.HACKATHONS) {
             HackathonListScreen(
-                onHackathonClick = { id ->
-                    navController.navigate(Routes.votingFeed(id))
+                onHackathonClick = { id, leaderboardOnly ->
+                    navController.navigate(Routes.votingFeed(id, leaderboardOnly))
                 },
                 onSignOut = {
                     navController.navigate(Routes.LOGIN) {
@@ -48,7 +48,13 @@ fun AppNavGraph() {
 
         composable(
             route = Routes.VOTING_FEED,
-            arguments = listOf(navArgument("hackathonId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("hackathonId") { type = NavType.StringType },
+                navArgument("leaderboardOnly") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            )
         ) { backStackEntry ->
             val hackathonId = backStackEntry.arguments?.getString("hackathonId") ?: return@composable
             VotingFeedScreen(hackathonId = hackathonId)

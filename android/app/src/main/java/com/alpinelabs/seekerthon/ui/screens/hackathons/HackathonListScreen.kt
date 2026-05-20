@@ -33,7 +33,7 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HackathonListScreen(
-    onHackathonClick: (String) -> Unit,
+    onHackathonClick: (String, Boolean) -> Unit,
     onSignOut: () -> Unit,
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
@@ -123,7 +123,12 @@ fun HackathonListScreen(
                                 HackathonCard(
                                     hackathon = hackathon,
                                     selectedList = state.selectedList,
-                                    onClick = { onHackathonClick(hackathon.id) },
+                                    onClick = {
+                                        onHackathonClick(
+                                            hackathon.id,
+                                            state.selectedList == HackathonListFilter.Past,
+                                        )
+                                    },
                                 )
                             }
                         }
