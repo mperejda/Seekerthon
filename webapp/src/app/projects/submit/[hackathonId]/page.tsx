@@ -469,6 +469,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           <input
             type="file"
             accept="video/mp4"
+            required
             onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
             className="w-full border rounded-lg px-3 py-2"
           />
