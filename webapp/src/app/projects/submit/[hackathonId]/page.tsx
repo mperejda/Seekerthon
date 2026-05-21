@@ -432,6 +432,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
             <label className="block text-sm font-medium mb-1">Demo URL</label>
             <input
               type="url"
+              required
               value={form.demo_url}
               onChange={(e) => setForm({ ...form, demo_url: e.target.value })}
               className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -442,6 +443,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
             <label className="block text-sm font-medium mb-1">GitHub / Repo</label>
             <input
               type="url"
+              required
               value={form.repo_url}
               onChange={(e) => setForm({ ...form, repo_url: e.target.value })}
               className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -454,6 +456,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           <label className="block text-sm font-medium mb-1">Tech stack (comma separated)</label>
           <input
             type="text"
+            required
             value={form.tech_stack}
             onChange={(e) => setForm({ ...form, tech_stack: e.target.value })}
             className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
