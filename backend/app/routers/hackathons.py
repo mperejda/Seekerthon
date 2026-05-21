@@ -23,7 +23,7 @@ router = APIRouter()
 
 _log = logging.getLogger(__name__)
 
-ACTIVE_HACKATHON_STATUSES = ("draft", "open", "voting", "verifying")
+ACTIVE_HACKATHON_STATUSES = ("open", "voting", "verifying")
 ACTIVE_HACKATHON_ERROR = "A hackathon is already active. Complete it before creating a new one."
 
 
