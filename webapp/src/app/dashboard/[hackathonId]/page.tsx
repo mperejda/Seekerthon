@@ -214,11 +214,6 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
             {STATUS_LABEL[hackathonStatus] ?? hackathonStatus}
           </span>
         )}
-        {isOrganizer && storedHackathonStatus === "draft" && (
-          <a href={`/hackathons/${hackathonId}/fund`} className="text-sm bg-purple-600 text-white px-4 py-1.5 rounded-lg hover:bg-purple-700">
-            Fund Escrow to Open
-          </a>
-        )}
       </div>
 
       {hackathonStatus === "voting" && !votingEnded && (
