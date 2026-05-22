@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+import retrofit2.HttpException
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -93,6 +95,13 @@ class CreateHackathonViewModel @Inject constructor(
                 )
 
                 _state.update { it.copy(success = true, isLoading = false, step = null) }
+            } catch (e: HttpException) {
+                val detail = try {
+                    JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
+                } catch (_: Exception) {
+                    e.message ?: "Something went wrong"
+                }
+                _state.update { it.copy(error = detail, isLoading = false, step = null) }
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: "Something went wrong", isLoading = false, step = null) }
             }
