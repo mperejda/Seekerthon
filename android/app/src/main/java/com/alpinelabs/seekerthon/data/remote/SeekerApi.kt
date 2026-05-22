@@ -64,6 +64,16 @@ data class ProjectDto(
     val vote_count: Double,
 )
 
+data class HackathonCreateRequestDto(
+    val title: String,
+    val description: String,
+    val prize_pool_usdc: Long,
+    val voting_start: String,
+    val voting_end: String,
+)
+data class CreateEscrowTxResponseDto(val transaction_b64: String, val escrow_pda: String)
+data class EscrowSetRequestDto(val escrow_pubkey: String, val onchain_pda: String)
+
 data class VotePrepareRequestDto(val project_id: String)
 data class VotePrepareResponseDto(
     val vote_message: String,
@@ -100,6 +110,15 @@ interface SeekerApi {
 
     @GET("hackathons/{id}")
     suspend fun getHackathon(@Path("id") id: String): HackathonDto
+
+    @POST("hackathons/")
+    suspend fun createHackathon(@Body body: HackathonCreateRequestDto): HackathonDto
+
+    @GET("hackathons/{id}/create-escrow-tx")
+    suspend fun createEscrowTx(@Path("id") id: String): CreateEscrowTxResponseDto
+
+    @PATCH("hackathons/{id}/escrow")
+    suspend fun setEscrow(@Path("id") id: String, @Body body: EscrowSetRequestDto): HackathonDto
 
     @GET("projects/hackathon/{hackathonId}")
     suspend fun listProjects(@Path("hackathonId") hackathonId: String): List<ProjectDto>

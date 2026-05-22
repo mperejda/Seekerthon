@@ -7,12 +7,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.alpinelabs.seekerthon.ui.screens.feed.VotingFeedScreen
+import com.alpinelabs.seekerthon.ui.screens.hackathons.CreateHackathonScreen
 import com.alpinelabs.seekerthon.ui.screens.hackathons.HackathonListScreen
 import com.alpinelabs.seekerthon.ui.screens.login.LoginScreen
 
 object Routes {
     const val LOGIN = "login"
     const val HACKATHONS = "hackathons"
+    const val CREATE_HACKATHON = "create_hackathon"
     const val VOTING_FEED = "feed/{hackathonId}?leaderboardOnly={leaderboardOnly}"
     fun votingFeed(id: String, leaderboardOnly: Boolean = false) = "feed/$id?leaderboardOnly=$leaderboardOnly"
 }
@@ -43,7 +45,14 @@ fun AppNavGraph() {
                         popUpTo(Routes.HACKATHONS) { inclusive = true }
                     }
                 },
+                onCreateHackathon = {
+                    navController.navigate(Routes.CREATE_HACKATHON)
+                },
             )
+        }
+
+        composable(Routes.CREATE_HACKATHON) {
+            CreateHackathonScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

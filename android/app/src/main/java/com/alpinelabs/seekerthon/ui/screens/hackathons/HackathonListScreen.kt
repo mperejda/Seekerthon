@@ -35,6 +35,7 @@ import java.time.format.DateTimeFormatter
 fun HackathonListScreen(
     onHackathonClick: (String, Boolean) -> Unit,
     onSignOut: () -> Unit,
+    onCreateHackathon: () -> Unit,
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -115,6 +116,12 @@ fun HackathonListScreen(
                                                 "No active hackathons",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        if (state.selectedList == HackathonListFilter.Active) {
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(onClick = onCreateHackathon) {
+                                                Text("Create a Hackathon")
+                                            }
+                                        }
                                     }
                                 }
                             }
