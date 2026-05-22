@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 import dynamic from "next/dynamic";
@@ -16,7 +15,6 @@ const ACTIVE_STATUSES = new Set(["open", "voting", "verifying"]);
 export default function CreateHackathonPage() {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
-  const router = useRouter();
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -28,6 +26,7 @@ export default function CreateHackathonPage() {
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeHackathon, setActiveHackathon] = useState<{ title: string } | null>(null);
+  const [created, setCreated] = useState<{ id: string; title: string; prizeUsdc: number } | null>(null);
 
   useEffect(() => {
     fetch(`${API}/hackathons/`)
@@ -111,7 +110,11 @@ export default function CreateHackathonPage() {
       });
       if (!patchRes.ok) throw new Error((await patchRes.json()).detail);
 
-      router.push(`/dashboard/${hackathon.id}`);
+      setCreated({
+        id: hackathon.id,
+        title: form.title,
+        prizeUsdc: Math.round(parseFloat(form.prize_usdc)),
+      });
     } catch (err: any) {
       console.error("create hackathon error:", err);
       const inner = err?.error;
@@ -124,6 +127,34 @@ export default function CreateHackathonPage() {
   };
 
   const prizeUsdc = parseFloat(form.prize_usdc) || 0;
+
+  if (created) {
+    const xText = `I just launched ${created.title} on Seekerthon with a prize of $${created.prizeUsdc.toLocaleString("en-US")} USDC! Register to submit your projects at seekerthon.com`;
+    const xUrl = `https://x.com/intent/tweet?${new URLSearchParams({ text: xText }).toString()}`;
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="text-5xl mb-4">🎉</div>
+        <h2 className="text-2xl font-bold mb-2">Hackathon launched!</h2>
+        <p className="text-gray-600 mb-8">
+          Your hackathon is live and accepting submissions. Let the community know!
+        </p>
+        <div className="flex flex-col items-center gap-4">
+          <a
+            href={xUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            <span className="font-bold">X</span>
+            <span>Post on X</span>
+          </a>
+          <a href={`/dashboard/${created.id}`} className="text-purple-600 hover:underline text-sm">
+            Go to dashboard →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
