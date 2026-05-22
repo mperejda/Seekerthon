@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Query
+from postgrest.exceptions import APIError
 from typing import List, Optional
 from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
@@ -23,7 +24,7 @@ router = APIRouter()
 
 _log = logging.getLogger(__name__)
 
-ACTIVE_HACKATHON_STATUSES = ("open", "voting", "verifying")
+ACTIVE_HACKATHON_STATUSES = ("draft", "open", "voting", "verifying")
 ACTIVE_HACKATHON_ERROR = "A hackathon is already active. Complete it before creating a new one."
 
 
@@ -86,7 +87,10 @@ async def create_hackathon(body: HackathonCreate, request: Request):
         "max_projects": PROJECT_SUBMISSION_LIMIT,
         "status": "draft",
     }
-    result = db.table("hackathons").insert(data).execute()
+    try:
+        result = db.table("hackathons").insert(data).execute()
+    except APIError as exc:
+        raise HTTPException(status_code=409, detail=exc.message)
     return HackathonResponse(**result.data[0])
 
 
