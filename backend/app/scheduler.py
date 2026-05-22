@@ -67,9 +67,9 @@ async def _check_hackathon_notifications() -> None:
                     .select("name") \
                     .eq("hackathon_id", hid) \
                     .eq("status", "winner") \
-                    .maybe_single() \
+                    .limit(1) \
                     .execute()
-                if winner and winner.data:
+                if winner.data:
                     dispatch = await notification_service.send_to_hackathon_registrants(
                         hid,
                         "Winner announced!",
