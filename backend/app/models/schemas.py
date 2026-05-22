@@ -124,6 +124,12 @@ class HackathonResponse(BaseModel):
         from_attributes = True
 
 
+class HackathonCreateResponse(BaseModel):
+    hackathon: HackathonResponse
+    transaction_b64: str
+    escrow_pda: str
+
+
 # ── Registrations ─────────────────────────────────────────────────────────────
 
 class HackathonRegistrationResponse(BaseModel):

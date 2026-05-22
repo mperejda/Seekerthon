@@ -5,7 +5,7 @@ from typing import List, Optional
 from app.constants import PROJECT_SUBMISSION_LIMIT
 from app.db import get_supabase_admin
 from app.models.schemas import (
-    HackathonCreate, HackathonResponse, EscrowSetRequest,
+    HackathonCreate, HackathonResponse, HackathonCreateResponse, EscrowSetRequest,
     HackathonStatus, LeaderboardEntry, ProjectResponse,
     ClaimTxResponse, ReleaseTxResponse, VerifyReleaseRequest,
 )
@@ -76,9 +76,9 @@ def _assert_no_other_active_hackathon(db, exclude_id: str | None = None) -> None
         raise HTTPException(status_code=409, detail=ACTIVE_HACKATHON_ERROR)
 
 
-@router.post("/", response_model=HackathonResponse)
+@router.post("/", response_model=HackathonCreateResponse)
 async def create_hackathon(body: HackathonCreate, request: Request):
-    """Organizer creates a hackathon. Escrow PDA set after on-chain tx."""
+    """Create hackathon and build escrow tx atomically. Draft is rolled back on tx build failure."""
     db = get_supabase_admin()
     _assert_no_other_active_hackathon(db)
     data = {
@@ -91,17 +91,9 @@ async def create_hackathon(body: HackathonCreate, request: Request):
         result = db.table("hackathons").insert(data).execute()
     except APIError as exc:
         raise HTTPException(status_code=409, detail=exc.message)
-    return HackathonResponse(**result.data[0])
 
-
-@router.get("/{hackathon_id}/create-escrow-tx")
-async def prepare_create_escrow(hackathon_id: str, request: Request):
-    """Build the unsigned create_hackathon escrow transaction for the organizer to sign."""
-    db = get_supabase_admin()
-    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
-    if hackathon["status"] != "draft":
-        raise HTTPException(status_code=400, detail="Escrow already set up for this hackathon")
-
+    hackathon = result.data[0]
+    hackathon_id = hackathon["id"]
     voting_start_ts = int(_parse_dt(hackathon["voting_start"]).timestamp())
     voting_end_ts = int(_parse_dt(hackathon["voting_end"]).timestamp())
 
@@ -113,9 +105,18 @@ async def prepare_create_escrow(hackathon_id: str, request: Request):
             voting_start_ts=voting_start_ts,
             voting_end_ts=voting_end_ts,
         )
-    except ValueError as exc:
+    except Exception as exc:
+        try:
+            db.table("hackathons").delete().eq("id", hackathon_id).execute()
+        except Exception:
+            _log.warning("create_hackathon: failed to roll back draft %s", hackathon_id)
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"transaction_b64": tx_b64, "escrow_pda": escrow_pda}
+
+    return HackathonCreateResponse(
+        hackathon=HackathonResponse(**hackathon),
+        transaction_b64=tx_b64,
+        escrow_pda=escrow_pda,
+    )
 
 
 @router.patch("/{hackathon_id}/escrow", response_model=HackathonResponse)

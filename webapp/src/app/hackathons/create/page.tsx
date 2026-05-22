@@ -59,14 +59,7 @@ export default function CreateHackathonPage() {
         }),
       });
       if (!createRes.ok) throw new Error((await createRes.json()).detail);
-      const hackathon = await createRes.json();
-
-      setStep("Building transaction…");
-      const txRes = await fetch(`${API}/hackathons/${hackathon.id}/create-escrow-tx`, {
-        credentials: "include",
-      });
-      if (!txRes.ok) throw new Error((await txRes.json()).detail);
-      const { transaction_b64, escrow_pda } = await txRes.json();
+      const { hackathon, transaction_b64, escrow_pda } = await createRes.json();
 
       const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
       const tx = Transaction.from(txBytes);

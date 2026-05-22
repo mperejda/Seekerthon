@@ -68,7 +68,7 @@ class CreateHackathonViewModel @Inject constructor(
                 val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
                 _state.update { it.copy(step = "Creating hackathon…") }
-                val hackathon = api.createHackathon(
+                val response = api.createHackathon(
                     HackathonCreateRequestDto(
                         title = s.title.trim(),
                         description = s.description.trim(),
@@ -78,19 +78,16 @@ class CreateHackathonViewModel @Inject constructor(
                     )
                 )
 
-                _state.update { it.copy(step = "Building transaction…") }
-                val escrowTx = api.createEscrowTx(hackathon.id)
-
                 _state.update { it.copy(step = "Waiting for wallet approval…") }
-                val signResult = walletRepo.signAndSendMintTransaction(sender, escrowTx.transaction_b64)
+                val signResult = walletRepo.signAndSendMintTransaction(sender, response.transaction_b64)
                 signResult.getOrElse { throw it }
 
                 _state.update { it.copy(step = "Opening hackathon…") }
                 api.setEscrow(
-                    hackathon.id,
+                    response.hackathon.id,
                     EscrowSetRequestDto(
-                        escrow_pubkey = escrowTx.escrow_pda,
-                        onchain_pda = escrowTx.escrow_pda,
+                        escrow_pubkey = response.escrow_pda,
+                        onchain_pda = response.escrow_pda,
                     )
                 )
 
