@@ -1533,16 +1533,19 @@ async def build_create_escrow_transaction(
     tx.partial_sign([platform_admin_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
-    # Simulate first to surface program errors before sending to the client
-    sim_resp = await _rpc_post(
-        "simulateTransaction",
-        [tx_b64, {"encoding": "base64", "commitment": "confirmed", "replaceRecentBlockhash": True}],
-    )
-    sim_result = sim_resp.get("result", {}).get("value", {})
-    sim_logs = sim_result.get("logs") or []
-    _log.info("escrow simulation result: err=%s logs=%s", sim_result.get("err"), sim_logs)
-    if sim_result.get("err"):
-        raise ValueError(f"Simulation failed: {sim_result['err']} | logs: {sim_logs}")
+    # Simulate for diagnostic logging only — never block on failure here.
+    # The frontend (webapp) re-simulates with BlockhashNotFound bypass, and the
+    # wallet adapter (Android) surfaces errors at sign/send time.
+    try:
+        sim_resp = await _rpc_post(
+            "simulateTransaction",
+            [tx_b64, {"encoding": "base64", "commitment": "confirmed", "replaceRecentBlockhash": True}],
+        )
+        sim_result = sim_resp.get("result", {}).get("value", {})
+        sim_logs = sim_result.get("logs") or []
+        _log.info("escrow simulation result: err=%s logs=%s", sim_result.get("err"), sim_logs)
+    except Exception as exc:
+        _log.warning("escrow simulation failed (non-fatal): %s", exc)
 
     return tx_b64, str(escrow_pda)
 
