@@ -474,6 +474,9 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
             className="w-full border rounded-lg px-3 py-2"
           />
           <p className="text-xs text-gray-500 mt-1">Upload a short MP4 demo video. Max 50MB.</p>
+          <p className="text-xs text-amber-700 mt-1">
+            Videos are automatically scanned with AWS Rekognition. Uploading inappropriate content will result in disqualification from the hackathon.
+          </p>
         </div>
 
         <button

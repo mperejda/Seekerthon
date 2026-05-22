@@ -130,11 +130,13 @@ async def confirm_submit(project_id: str, body: SubmitConfirmRequest, request: R
 async def get_video_upload_url(project_id: str, body: AssetUploadUrlRequest, request: Request):
     """Return a presigned PUT URL so the client can upload an MP4 directly to R2."""
     db = get_supabase_admin()
-    project = db.table("projects").select("team_lead_id").eq("id", project_id).single().execute()
+    project = db.table("projects").select("team_lead_id,status").eq("id", project_id).single().execute()
     if not project.data:
         raise HTTPException(status_code=404, detail="Project not found")
     if str(project.data["team_lead_id"]) != request.state.user_id:
         raise HTTPException(status_code=403, detail="Not the project owner")
+    if project.data["status"] == "disqualified":
+        raise HTTPException(status_code=403, detail="This project has been disqualified")
     if body.content_type != "video/mp4":
         raise HTTPException(status_code=400, detail="Only video/mp4 uploads are supported")
 
@@ -155,6 +157,8 @@ async def confirm_video_upload(project_id: str, body: AssetConfirmRequest, reque
         raise HTTPException(status_code=404, detail="Project not found")
     if str(project.data["team_lead_id"]) != request.state.user_id:
         raise HTTPException(status_code=403, detail="Not the project owner")
+    if project.data["status"] == "disqualified":
+        raise HTTPException(status_code=403, detail="This project has been disqualified")
 
     expected_prefix = f"projects/{project_id}/"
     if not body.key.startswith(expected_prefix):
@@ -190,11 +194,10 @@ async def confirm_video_upload(project_id: str, body: AssetConfirmRequest, reque
             r2_service.delete_object(body.key)
         except Exception:
             pass
-        # Pull the project back to registered so it disappears from the public feed
-        db.table("projects").update({"status": "registered", "video_url": None}).eq("id", project_id).execute()
+        db.table("projects").update({"status": "disqualified", "video_url": None}).eq("id", project_id).execute()
         raise HTTPException(
             status_code=422,
-            detail="Your video could not be approved. Please upload different content.",
+            detail="Your video was flagged by our content moderation system. Your registration has been cancelled.",
         )
 
     public_url = r2_service.key_to_public_url(body.key)
