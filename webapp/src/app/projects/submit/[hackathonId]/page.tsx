@@ -79,7 +79,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const [loading, setLoading] = useState(false);
   const [stepStatus, setStepStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<"registered" | "submitted" | null>(null);
+  const [done, setDone] = useState<"registered" | "submitted" | "disqualified" | null>(null);
   const [submittedProjectName, setSubmittedProjectName] = useState<string | null>(null);
 
   const isLoggedIn = !!user;
@@ -112,7 +112,9 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
               const proj = await fetchJson<Project>(`${API}/projects/${reg.registration.project_id}`, {
                 credentials: "include",
               });
-              if (!cancelled && ["submitted", "approved", "winner"].includes(proj.status)) {
+              if (!cancelled && proj.status === "disqualified") {
+                setDone("disqualified");
+              } else if (!cancelled && ["submitted", "approved", "winner"].includes(proj.status)) {
                 setSubmittedProjectName(proj.name || null);
                 setDone("submitted");
               }
@@ -331,6 +333,19 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           </a>
           <a href="/" className="text-purple-600 hover:underline text-sm">← Back to hackathons</a>
         </div>
+      </div>
+    );
+  }
+
+  if (done === "disqualified") {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="text-5xl mb-4">🚫</div>
+        <h2 className="text-2xl font-bold mb-2">Registration cancelled</h2>
+        <p className="text-gray-600 mb-6">
+          Your registration was cancelled because a video you uploaded was flagged by our content moderation system.
+        </p>
+        <a href="/" className="inline-block text-purple-600 hover:underline text-sm">← Back to hackathons</a>
       </div>
     );
   }
