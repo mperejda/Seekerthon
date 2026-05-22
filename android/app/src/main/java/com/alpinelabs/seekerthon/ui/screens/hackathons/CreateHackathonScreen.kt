@@ -1,5 +1,6 @@
 package com.alpinelabs.seekerthon.ui.screens.hackathons
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -172,19 +173,19 @@ private fun DateTimePicker(
         is24Hour = false,
     )
 
-    OutlinedTextField(
-        value = displayText,
-        onValueChange = {},
-        label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
-        readOnly = true,
-        enabled = enabled,
-        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            .also { source ->
-                val pressed by source.collectIsPressedAsState()
-                LaunchedEffect(pressed) { if (pressed && enabled) showDatePicker = true }
-            },
-    )
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = displayText,
+            onValueChange = {},
+            label = { Text(label) },
+            modifier = Modifier.fillMaxWidth(),
+            readOnly = true,
+            enabled = enabled,
+        )
+        if (enabled) {
+            Box(Modifier.matchParentSize().clickable { showDatePicker = true })
+        }
+    }
 
     if (showDatePicker) {
         DatePickerDialog(
