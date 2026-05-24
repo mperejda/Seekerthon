@@ -1536,6 +1536,12 @@ async def build_create_escrow_transaction(
     tx.partial_sign([platform_admin_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
+    _log.info(
+        "escrow tx accounts: organizer=%s platform_admin=%s usdc_mint=%s escrow_pda=%s vault=%s organizer_usdc_ata=%s token_program=%s assoc_token=%s system=%s rent=%s program=%s",
+        organizer, platform_admin, usdc_mint_pk, escrow_pda, vault, organizer_usdc_ata,
+        TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM, SYSTEM_PROGRAM_ID, SYSVAR_RENT, escrow_program,
+    )
+
     sim_resp = await _rpc_post(
         "simulateTransaction",
         [tx_b64, {"encoding": "base64", "commitment": "confirmed", "replaceRecentBlockhash": True}],
