@@ -83,6 +83,7 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
   const [submittedProjectName, setSubmittedProjectName] = useState<string | null>(null);
 
   const isLoggedIn = !!user;
+  const walletMismatch = !!user && !!publicKey && user.wallet_address !== publicKey.toBase58();
 
   useEffect(() => {
     let cancelled = false;
@@ -387,9 +388,15 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           </p>
         )}
 
+        {walletMismatch && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+            Wallet changed — please sign the prompt in Phantom to re-authenticate before registering.
+          </div>
+        )}
+
         <button
           onClick={handleRegister}
-          disabled={loading || !publicKey}
+          disabled={loading || !publicKey || walletMismatch}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
         >
           {stepStatus ?? (loading ? "Registering…" : "Lock In My Spot — $2 USDC")}
