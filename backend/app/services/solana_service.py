@@ -1008,7 +1008,10 @@ async def fetch_confirmed_transaction(
     organizer refund) where a fork/reorg flipping DB state would be a problem.
     'confirmed' is fine for everything else.
     """
-    for _ in range(5):
+    # finalized takes ~15-30s on mainnet; give it up to 60s. confirmed is fast.
+    max_retries = 30 if commitment == "finalized" else 5
+    sleep_secs = 2 if commitment == "finalized" else 1
+    for _ in range(max_retries):
         resp = await _rpc_post(
             "getTransaction",
             [tx_signature, {"encoding": "jsonParsed", "commitment": commitment, "maxSupportedTransactionVersion": 0}],
@@ -1019,7 +1022,7 @@ async def fetch_confirmed_transaction(
             if tx_data.get("meta", {}).get("err") is not None:
                 raise Exception(f"Confirmed transaction has on-chain error: {tx_data['meta']['err']}")
             return tx_data
-        await asyncio.sleep(1)
+        await asyncio.sleep(sleep_secs)
     raise Exception(f"Confirmed transaction not found: {tx_signature}")
 
 
