@@ -135,9 +135,13 @@ class HackathonListViewModel @Inject constructor(
     fun dismissMintSuccess() { _state.value = _state.value.copy(mintSuccess = false) }
 
     private fun List<Hackathon>.filterFor(filter: HackathonListFilter): List<Hackathon> {
+        val now = Instant.now()
         return when (filter) {
             HackathonListFilter.Active -> filterForActiveVoting()
-            HackathonListFilter.Past -> filter { it.status == "completed" }
+            HackathonListFilter.Past -> filter { hackathon ->
+                hackathon.status == "completed" ||
+                    (hackathon.status != "draft" && !now.isBefore(hackathon.votingEnd))
+            }
         }
     }
 
