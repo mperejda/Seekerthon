@@ -146,6 +146,16 @@ async def set_escrow(hackathon_id: str, body: EscrowSetRequest, request: Request
     return HackathonResponse(**result.data[0])
 
 
+@router.delete("/{hackathon_id}", status_code=204)
+async def delete_draft_hackathon(hackathon_id: str, request: Request):
+    """Delete a draft hackathon. Only the organizer can do this, and only while status is draft."""
+    db = get_supabase_admin()
+    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
+    if hackathon["status"] != "draft":
+        raise HTTPException(status_code=409, detail="Only draft hackathons can be deleted")
+    db.table("hackathons").delete().eq("id", hackathon_id).execute()
+
+
 @router.get("/", response_model=List[HackathonResponse])
 async def list_hackathons(
     status: Optional[HackathonStatus] = None,

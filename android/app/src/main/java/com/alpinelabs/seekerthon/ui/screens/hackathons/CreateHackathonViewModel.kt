@@ -64,6 +64,7 @@ class CreateHackathonViewModel @Inject constructor(
         _state.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
+            var hackathonId: String? = null
             try {
                 val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
@@ -77,6 +78,7 @@ class CreateHackathonViewModel @Inject constructor(
                         voting_end = isoFormatter.format(Instant.ofEpochMilli(endMs).atOffset(ZoneOffset.UTC)),
                     )
                 )
+                hackathonId = response.hackathon.id
 
                 _state.update { it.copy(step = "Waiting for wallet approval…") }
                 val signResult = walletRepo.signAndSendMintTransaction(sender, response.transaction_b64)
@@ -90,9 +92,11 @@ class CreateHackathonViewModel @Inject constructor(
                         onchain_pda = response.escrow_pda,
                     )
                 )
+                hackathonId = null // escrow set — no longer a draft to clean up
 
                 _state.update { it.copy(success = true, isLoading = false, step = null) }
             } catch (e: HttpException) {
+                hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
                 val detail = try {
                     JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
                 } catch (_: Exception) {
@@ -100,6 +104,7 @@ class CreateHackathonViewModel @Inject constructor(
                 }
                 _state.update { it.copy(error = detail, isLoading = false, step = null) }
             } catch (e: Exception) {
+                hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
                 _state.update { it.copy(error = e.message ?: "Something went wrong", isLoading = false, step = null) }
             }
         }

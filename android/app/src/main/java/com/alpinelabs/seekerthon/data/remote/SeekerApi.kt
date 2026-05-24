@@ -121,6 +121,9 @@ interface SeekerApi {
     @PATCH("hackathons/{id}/escrow")
     suspend fun setEscrow(@Path("id") id: String, @Body body: EscrowSetRequestDto): HackathonDto
 
+    @DELETE("hackathons/{id}")
+    suspend fun deleteDraftHackathon(@Path("id") id: String)
+
     @GET("projects/hackathon/{hackathonId}")
     suspend fun listProjects(@Path("hackathonId") hackathonId: String): List<ProjectDto>
 
