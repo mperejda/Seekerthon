@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -80,6 +81,7 @@ fun CreateHackathonScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !state.isLoading,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
 
             OutlinedTextField(
@@ -89,6 +91,7 @@ fun CreateHackathonScreen(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 enabled = !state.isLoading,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
 
             OutlinedTextField(
