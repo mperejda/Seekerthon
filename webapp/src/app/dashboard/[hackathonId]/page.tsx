@@ -152,7 +152,10 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tx_signature: txSignature }),
       });
-      if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+      if (!confirmRes.ok) {
+        const body = await confirmRes.json().catch(() => null);
+        throw new Error(body?.detail ?? `Server error (${confirmRes.status})`);
+      }
       setHackathon(await confirmRes.json());
       setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, status: "winner" } : p)));
     } catch (err: any) {
@@ -184,7 +187,10 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tx_signature: txSignature }),
       });
-      if (!confirmRes.ok) throw new Error((await confirmRes.json()).detail);
+      if (!confirmRes.ok) {
+        const body = await confirmRes.json().catch(() => null);
+        throw new Error(body?.detail ?? `Server error (${confirmRes.status})`);
+      }
       setHackathon(await confirmRes.json());
     } catch (err: any) {
       setError(await extractTxError(err, connection));

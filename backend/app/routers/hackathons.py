@@ -357,13 +357,17 @@ async def confirm_claim(
         raise HTTPException(status_code=403, detail="Only the winning team lead can claim")
 
     # finalized commitment so a reorg can't roll back a "winner" assignment.
-    verified = await verify_program_transaction_on_chain(
-        body.tx_signature,
-        request.state.wallet_address,
-        [hackathon["escrow_pubkey"], winner["onchain_pda"]],
-        "claim_prize",
-        commitment="finalized",
-    )
+    try:
+        verified = await verify_program_transaction_on_chain(
+            body.tx_signature,
+            request.state.wallet_address,
+            [hackathon["escrow_pubkey"], winner["onchain_pda"]],
+            "claim_prize",
+            commitment="finalized",
+        )
+    except Exception as exc:
+        _log.warning("confirm_claim: tx lookup failed sig=%s err=%s", body.tx_signature, exc)
+        raise HTTPException(status_code=400, detail="Could not verify claim transaction on-chain. Please try again in a moment.")
     if not verified:
         raise HTTPException(status_code=400, detail="Claim transaction not confirmed on-chain")
 
