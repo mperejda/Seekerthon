@@ -65,9 +65,13 @@ fun VotingFeedScreen(
     if (state.hasFinishedVoting) {
         LeaderboardScreen(
             projects = state.projects,
+            hackathon = state.hackathon,
+            currentUserId = state.currentUserId,
             votedProjectIds = state.votedProjectIds,
             isRefreshing = state.isRefreshing,
+            isRefunding = state.isRefunding,
             onRefresh = { viewModel.refresh() },
+            onRefund = { viewModel.refundOrganizer(activityResultSender) },
         )
         return
     }
@@ -259,11 +263,18 @@ private fun FinishVotingCard(
 @Composable
 private fun LeaderboardScreen(
     projects: List<Project>,
+    hackathon: com.alpinelabs.seekerthon.domain.model.Hackathon?,
+    currentUserId: String,
     votedProjectIds: Set<String>,
     isRefreshing: Boolean,
+    isRefunding: Boolean,
     onRefresh: () -> Unit,
+    onRefund: () -> Unit,
 ) {
     val ranked = remember(projects) { projects.sortedByDescending { it.voteCount } }
+    val isOrganizer = hackathon != null && hackathon.organizerId == currentUserId
+    val votingEnded = hackathon != null && java.time.Instant.now().isAfter(hackathon.votingEnd)
+    val showRefund = isOrganizer && votingEnded && ranked.isEmpty() && hackathon?.status != "completed"
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         PullToRefreshBox(
@@ -310,6 +321,42 @@ private fun LeaderboardScreen(
                                 color = Color.White.copy(alpha = 0.5f),
                                 fontSize = 13.sp,
                             )
+                        }
+                    }
+                }
+
+                if (ranked.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            Icon(Icons.Outlined.Inbox, null, tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(48.dp))
+                            Text(
+                                "No projects were submitted",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                            if (showRefund) {
+                                Button(
+                                    onClick = onRefund,
+                                    enabled = !isRefunding,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF534AB7)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    if (isRefunding) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Refunding…", color = Color.White)
+                                    } else {
+                                        Text("Refund Prize to Organizer", color = Color.White)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

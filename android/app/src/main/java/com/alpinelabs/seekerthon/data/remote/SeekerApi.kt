@@ -77,6 +77,8 @@ data class HackathonCreateResponseDto(
     val escrow_pda: String,
 )
 data class EscrowSetRequestDto(val escrow_pubkey: String, val onchain_pda: String)
+data class RefundTxResponseDto(val transaction_b64: String)
+data class RefundConfirmRequestDto(val tx_signature: String)
 
 data class VotePrepareRequestDto(val project_id: String)
 data class VotePrepareResponseDto(
@@ -123,6 +125,12 @@ interface SeekerApi {
 
     @DELETE("hackathons/{id}")
     suspend fun deleteDraftHackathon(@Path("id") id: String)
+
+    @GET("hackathons/{id}/verify/refund/release-tx")
+    suspend fun getRefundTx(@Path("id") id: String): RefundTxResponseDto
+
+    @POST("hackathons/{id}/verify/refund")
+    suspend fun confirmRefund(@Path("id") id: String, @Body body: RefundConfirmRequestDto): HackathonDto
 
     @GET("projects/hackathon/{hackathonId}")
     suspend fun listProjects(@Path("hackathonId") hackathonId: String): List<ProjectDto>

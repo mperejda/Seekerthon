@@ -8,6 +8,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
+import com.alpinelabs.seekerthon.data.remote.RefundConfirmRequestDto
 import com.alpinelabs.seekerthon.data.remote.SeekerApi
 import com.alpinelabs.seekerthon.data.remote.VoteConfirmRequestDto
 import com.alpinelabs.seekerthon.data.remote.VotePrepareRequestDto
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import retrofit2.HttpException
 import javax.inject.Inject
 
@@ -39,6 +41,8 @@ data class FeedUiState(
     val userMultiplier: Double = 1.0,
     val isSeekerVerified: Boolean = false,
     val hasFinishedVoting: Boolean = false,
+    val currentUserId: String = "",
+    val isRefunding: Boolean = false,
 )
 
 @HiltViewModel
@@ -123,6 +127,7 @@ class VotingFeedViewModel @Inject constructor(
                         leaderboardOnly ||
                         finishedKey() in finished,
                     isUserStateLoaded = true,
+                    currentUserId = user.id,
                 )
             } catch (_: Exception) {
                 _state.value = _state.value.copy(isUserStateLoaded = true)
@@ -204,6 +209,26 @@ class VotingFeedViewModel @Inject constructor(
                     votingProjectId = null,
                     error = e.message ?: "Vote failed",
                 )
+            }
+        }
+    }
+
+    fun refundOrganizer(sender: ActivityResultSender) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isRefunding = true, error = null)
+            try {
+                val refundTx = api.getRefundTx(hackathonId)
+                val signResult = walletRepo.signAndSendMintTransaction(sender, refundTx.transaction_b64)
+                val txSig = signResult.getOrElse { throw it }
+                val updated = api.confirmRefund(hackathonId, RefundConfirmRequestDto(tx_signature = txSig))
+                _state.value = _state.value.copy(hackathon = updated.toHackathon(), isRefunding = false)
+            } catch (e: HttpException) {
+                val detail = try {
+                    JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
+                } catch (_: Exception) { e.message ?: "Refund failed" }
+                _state.value = _state.value.copy(isRefunding = false, error = detail)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(isRefunding = false, error = e.message ?: "Refund failed")
             }
         }
     }
