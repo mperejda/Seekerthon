@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import java.time.Instant
 import javax.inject.Inject
 
@@ -27,6 +28,7 @@ data class HackathonListUiState(
     val builderPassUnavailableMessage: String? = null,
     val isMinting: Boolean = false,
     val mintSuccess: Boolean = false,
+    val sessionExpired: Boolean = false,
     val error: String? = null,
 )
 
@@ -60,7 +62,15 @@ class HackathonListViewModel @Inject constructor(
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
                 val hackathons = api.listHackathons().map { it.toHackathon() }
-                val me = try { api.getMe() } catch (_: Exception) { null }
+                val me = try {
+                    api.getMe()
+                } catch (e: HttpException) {
+                    if (e.code() == 401) {
+                        _state.value = _state.value.copy(isLoading = false, sessionExpired = true)
+                        return@launch
+                    }
+                    null
+                } catch (_: Exception) { null }
                 val builderPassStatus = try { api.getBuilderPassStatus() } catch (_: Exception) { null }
                 _state.value = HackathonListUiState(
                     hackathons = hackathons,
@@ -81,7 +91,15 @@ class HackathonListViewModel @Inject constructor(
             _state.value = _state.value.copy(isRefreshing = true, error = null)
             try {
                 val hackathons = api.listHackathons().map { it.toHackathon() }
-                val me = try { api.getMe() } catch (_: Exception) { null }
+                val me = try {
+                    api.getMe()
+                } catch (e: HttpException) {
+                    if (e.code() == 401) {
+                        _state.value = _state.value.copy(isRefreshing = false, sessionExpired = true)
+                        return@launch
+                    }
+                    null
+                } catch (_: Exception) { null }
                 val builderPassStatus = try { api.getBuilderPassStatus() } catch (_: Exception) { null }
                 _state.value = _state.value.copy(
                     hackathons = hackathons,

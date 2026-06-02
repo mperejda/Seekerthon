@@ -41,6 +41,10 @@ fun HackathonListScreen(
     val state by viewModel.state.collectAsState()
     val sender = LocalActivityResultSender.current
 
+    if (state.sessionExpired) {
+        LaunchedEffect(Unit) { viewModel.signOut(onSignOut) }
+    }
+
     // Success snackbar
     if (state.mintSuccess) {
         LaunchedEffect(Unit) { viewModel.dismissMintSuccess() }
