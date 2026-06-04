@@ -211,7 +211,7 @@ export default function CreateHackathonPage() {
           />
           <p className="text-xs text-gray-500 mt-1">Launch hackathons are limited to 100 project submissions.</p>
           <p className="text-xs text-amber-700 mt-2">
-            Seekerthon has not been audited yet. We are actively raising funds for a security audit.
+            Seekerthon has not been audited yet. Funds are actively being raised for a security audit.
           </p>
         </div>
 

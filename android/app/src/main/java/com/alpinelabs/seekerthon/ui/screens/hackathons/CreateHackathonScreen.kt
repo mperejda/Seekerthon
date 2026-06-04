@@ -104,6 +104,12 @@ fun CreateHackathonScreen(
                 enabled = !state.isLoading,
             )
 
+            Text(
+                "Seekerthon has not been audited yet. Funds are actively being raised for a security audit.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             DateTimePicker(
                 label = "Voting starts",
                 millis = state.votingStartMillis,
