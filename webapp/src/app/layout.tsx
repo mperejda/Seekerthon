@@ -29,6 +29,12 @@ export default function RootLayout({
             </div>
           </nav>
           <main>{children}</main>
+          <footer className="border-t border-gray-200 bg-white mt-12 py-6 px-6">
+            <div className="max-w-4xl mx-auto flex gap-6 text-sm text-gray-500">
+              <a href="/terms" className="hover:text-purple-600">Terms of Use</a>
+              <a href="/privacy" className="hover:text-purple-600">Privacy Policy</a>
+            </div>
+          </footer>
         </Providers>
       </body>
     </html>
