@@ -8,9 +8,10 @@ export default function PrivacyPolicyPage() {
         <section>
           <h2 className="text-xl font-semibold text-gray-900 mb-3">1. Overview</h2>
           <p>
-            Seekerthon (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) is a hackathon platform built on the Solana
-            blockchain. This Privacy Policy explains how we collect, use, and protect information
-            when you use the Seekerthon web app or Android app (collectively, the &ldquo;App&rdquo;).
+            Seekerthon is a hackathon platform built on the Solana blockchain, created by Matt Perejda
+            and published and distributed by Alpine Labs LLC (&ldquo;Alpine Labs,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;).
+            This Privacy Policy explains how we collect, use, and protect information when you use
+            the Seekerthon web app or Android app (collectively, the &ldquo;App&rdquo;).
           </p>
         </section>
 

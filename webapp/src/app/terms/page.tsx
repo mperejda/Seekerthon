@@ -13,6 +13,10 @@ export default function TermsOfUsePage() {
             built on the Solana blockchain that allows organizers to create hackathons with USDC prize
             pools and allows participants to submit projects and vote.
           </p>
+          <p className="mt-3">
+            Seekerthon was created by Matt Perejda and is published and distributed by Alpine Labs LLC,
+            a limited liability company (&ldquo;Alpine Labs,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;).
+          </p>
         </section>
 
         <section>
@@ -84,7 +88,7 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Limitation of Liability</h2>
           <p>
-            To the maximum extent permitted by law, Seekerthon and its operators shall not be liable
+            To the maximum extent permitted by law, Alpine Labs LLC and its members shall not be liable
             for any indirect, incidental, special, consequential, or punitive damages, including loss
             of funds, arising from your use of or inability to use the App.
           </p>
