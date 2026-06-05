@@ -6,7 +6,7 @@ import "@solana/wallet-adapter-react-ui/styles.css";
 import { createContext, useContext, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.solana.com";
+const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
 
 export interface SeekerUser {
   id: string;
