@@ -1527,7 +1527,7 @@ async def build_create_escrow_transaction(
         data=ix_data,
     )
 
-    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}])
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
     blockhash_str = bh_resp["result"]["value"]["blockhash"]
     recent_blockhash = Hash.from_string(blockhash_str)
 
@@ -1545,6 +1545,7 @@ async def build_create_escrow_transaction(
     sim_resp = await _rpc_post(
         "simulateTransaction",
         [tx_b64, {"encoding": "base64", "commitment": "confirmed", "replaceRecentBlockhash": True}],
+        rpc_url=MAINNET_RPC_URL,
     )
     sim_result = sim_resp.get("result", {}).get("value", {})
     sim_logs = sim_result.get("logs") or []

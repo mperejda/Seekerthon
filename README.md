@@ -170,7 +170,7 @@ weight = min(1 + log2(1 + staked_skr / 100), 5.0)
 ```bash
 cd backend
 cp .env.example .env
-# Fill in your Supabase credentials and Solana program IDs
+# Fill in your Supabase credentials, Solana RPC provider URLs, and program IDs
 
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
@@ -206,6 +206,7 @@ cd webapp
 npm install
 cp .env.local.example .env.local
 # Set NEXT_PUBLIC_API_URL to your backend URL
+# Set SOLANA_RPC_URL to a dedicated mainnet RPC provider URL
 
 npm run dev
 ```
