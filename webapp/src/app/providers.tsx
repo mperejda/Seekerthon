@@ -7,6 +7,7 @@ import { createContext, useContext, ReactNode, useEffect, useMemo, useRef, useSt
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
+const SSR_ORIGIN = "http://localhost:3000";
 
 export interface SeekerUser {
   id: string;
@@ -82,9 +83,16 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 export function Providers({ children }: { children: ReactNode }) {
   const wallets = useMemo(() => [], []);
+  const rpcEndpoint = useMemo(() => {
+    if (RPC_ENDPOINT.startsWith("http://") || RPC_ENDPOINT.startsWith("https://")) {
+      return RPC_ENDPOINT;
+    }
+    const origin = typeof window === "undefined" ? SSR_ORIGIN : window.location.origin;
+    return new URL(RPC_ENDPOINT, origin).toString();
+  }, []);
 
   return (
-    <ConnectionProvider endpoint={RPC_ENDPOINT}>
+    <ConnectionProvider endpoint={rpcEndpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <AuthGate>{children}</AuthGate>
