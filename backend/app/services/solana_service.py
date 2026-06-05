@@ -1476,6 +1476,7 @@ async def build_create_escrow_transaction(
     prize_usdc: int,
     voting_start_ts: int,
     voting_end_ts: int,
+    presign_platform_admin: bool = True,
 ) -> tuple[str, str]:
     """
     Build an unsigned create_hackathon transaction for the escrow program.
@@ -1533,7 +1534,8 @@ async def build_create_escrow_transaction(
 
     msg = Message.new_with_blockhash([instruction], organizer, recent_blockhash)
     tx = Transaction.new_unsigned(msg)
-    tx.partial_sign([platform_admin_kp], recent_blockhash)
+    if presign_platform_admin:
+        tx.partial_sign([platform_admin_kp], recent_blockhash)
     tx_b64 = base64.b64encode(bytes(tx)).decode()
 
     _log.info(
@@ -1559,6 +1561,137 @@ async def build_create_escrow_transaction(
         raise ValueError(anchor_msg or f"Transaction simulation failed: {sim_err}")
 
     return tx_b64, str(escrow_pda)
+
+
+def _expected_create_escrow_instruction(
+    organizer_wallet: str,
+    hackathon_id_str: str,
+    prize_usdc: int,
+    voting_start_ts: int,
+    voting_end_ts: int,
+) -> tuple[Instruction, str]:
+    organizer = Pubkey.from_string(organizer_wallet)
+    platform_admin = _escrow_platform_admin_keypair().pubkey()
+    usdc_mint_pk = Pubkey.from_string(ESCROW_USDC_MINT)
+    escrow_program = Pubkey.from_string(ESCROW_PROGRAM)
+    hackathon_id_bytes = _uuid.UUID(hackathon_id_str).bytes
+    escrow_pda, _ = Pubkey.find_program_address(
+        [b"hackathon_escrow", hackathon_id_bytes],
+        escrow_program,
+    )
+    vault = _find_ata(escrow_pda, usdc_mint_pk)
+    organizer_usdc_ata = _find_ata(organizer, usdc_mint_pk)
+    sysvar_rent = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
+    ix_data = (
+        _anchor_discriminator("create_hackathon")
+        + hackathon_id_bytes
+        + struct.pack("<Q", prize_usdc)
+        + struct.pack("<q", voting_start_ts)
+        + struct.pack("<q", voting_end_ts)
+    )
+    instruction = Instruction(
+        program_id=escrow_program,
+        accounts=[
+            AccountMeta(pubkey=organizer, is_signer=True, is_writable=True),
+            AccountMeta(pubkey=platform_admin, is_signer=True, is_writable=False),
+            AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=escrow_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=organizer_usdc_ata, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=sysvar_rent, is_signer=False, is_writable=False),
+        ],
+        data=ix_data,
+    )
+    return instruction, str(escrow_pda)
+
+
+def _validate_create_escrow_signed_tx(
+    tx: Transaction,
+    organizer_wallet: str,
+    hackathon_id_str: str,
+    escrow_pubkey: str,
+    prize_usdc: int,
+    voting_start_ts: int,
+    voting_end_ts: int,
+) -> None:
+    expected_ix, expected_escrow = _expected_create_escrow_instruction(
+        organizer_wallet,
+        hackathon_id_str,
+        prize_usdc,
+        voting_start_ts,
+        voting_end_ts,
+    )
+    if escrow_pubkey != expected_escrow:
+        raise ValueError("Escrow pubkey does not match expected PDA")
+
+    expected_message = Message.new_with_blockhash(
+        [expected_ix],
+        Pubkey.from_string(organizer_wallet),
+        tx.message.recent_blockhash,
+    )
+    if bytes(tx.message) != bytes(expected_message):
+        raise ValueError("Create escrow transaction message does not match expected draft transaction")
+
+    signer_keys = list(tx.message.signer_keys())
+    organizer_pk = Pubkey.from_string(organizer_wallet)
+    platform_admin = _escrow_platform_admin_keypair().pubkey()
+    if organizer_pk not in signer_keys:
+        raise ValueError("Organizer is not a required signer")
+    if platform_admin not in signer_keys:
+        raise ValueError("Platform admin is not a required signer")
+
+    verify_results = list(tx.verify_with_results())
+    organizer_index = signer_keys.index(organizer_pk)
+    if not verify_results or not verify_results[organizer_index]:
+        raise ValueError("Organizer signature missing or invalid")
+
+    account_keys = list(tx.message.account_keys)
+    expected_accounts = [meta.pubkey for meta in expected_ix.accounts]
+    matching_instructions = []
+    for compiled_ix in tx.message.instructions:
+        program_id = account_keys[int(compiled_ix.program_id_index)]
+        accounts = [account_keys[int(i)] for i in compiled_ix.accounts]
+        data = bytes(compiled_ix.data)
+        if program_id == expected_ix.program_id:
+            matching_instructions.append((accounts, data))
+
+    if len(matching_instructions) != 1:
+        raise ValueError("Expected exactly one create_hackathon instruction")
+    accounts, data = matching_instructions[0]
+    if accounts != expected_accounts:
+        raise ValueError("Create hackathon accounts do not match expected escrow transaction")
+    if data != bytes(expected_ix.data):
+        raise ValueError("Create hackathon instruction data does not match draft hackathon")
+
+
+async def cosign_and_submit_create_escrow_transaction(
+    signed_tx_b64: str,
+    organizer_wallet: str,
+    hackathon_id_str: str,
+    escrow_pubkey: str,
+    prize_usdc: int,
+    voting_start_ts: int,
+    voting_end_ts: int,
+) -> str:
+    tx = Transaction.from_bytes(base64.b64decode(signed_tx_b64))
+    _validate_create_escrow_signed_tx(
+        tx,
+        organizer_wallet,
+        hackathon_id_str,
+        escrow_pubkey,
+        prize_usdc,
+        voting_start_ts,
+        voting_end_ts,
+    )
+    platform_admin_kp = _escrow_platform_admin_keypair()
+    tx.partial_sign([platform_admin_kp], tx.message.recent_blockhash)
+    if not tx.is_signed():
+        raise ValueError("Create escrow transaction is missing required signatures")
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
+    return await submit_and_confirm_transaction(tx_b64)
 
 
 async def build_release_transaction(
@@ -1878,6 +2011,7 @@ async def verify_escrow_account_on_chain(
     resp = await _rpc_post(
         "getAccountInfo",
         [escrow_pubkey, {"encoding": "base64", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
     )
     value = (resp.get("result") or {}).get("value")
     if not value or value.get("owner") != ESCROW_PROGRAM:

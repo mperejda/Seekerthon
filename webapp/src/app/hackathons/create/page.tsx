@@ -12,6 +12,12 @@ const WalletMultiButton = dynamic(
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const ACTIVE_STATUSES = new Set(["open", "voting", "verifying"]);
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
 export default function CreateHackathonPage() {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
@@ -43,6 +49,8 @@ export default function CreateHackathonPage() {
     if (!publicKey || !signTransaction) return;
     setLoading(true);
     setError(null);
+    let hackathonId: string | null = null;
+    let canCleanupDraft = true;
 
     try {
       setStep("Creating hackathon…");
@@ -56,10 +64,12 @@ export default function CreateHackathonPage() {
           prize_pool_usdc: Math.round(parseFloat(form.prize_usdc) * 1_000_000),
           voting_start: new Date(form.voting_start).toISOString(),
           voting_end: new Date(form.voting_end).toISOString(),
+          signing_flow: "wallet_first",
         }),
       });
       if (!createRes.ok) throw new Error((await createRes.json()).detail);
       const { hackathon, transaction_b64, escrow_pda } = await createRes.json();
+      hackathonId = hackathon.id;
 
       const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
       const tx = Transaction.from(txBytes);
@@ -85,30 +95,34 @@ export default function CreateHackathonPage() {
       setStep("Waiting for wallet approval…");
       const signedTx = await signTransaction(tx);
 
-      setStep("Submitting transaction…");
-      const sig = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: "confirmed",
-      });
+      setStep("Preparing signed transaction...");
+      const signed_tx_b64 = bytesToBase64(signedTx.serialize());
 
-      setStep("Confirming on-chain…");
-      await connection.confirmTransaction(sig, "confirmed");
-
-      setStep("Opening hackathon…");
-      const patchRes = await fetch(`${API}/hackathons/${hackathon.id}/escrow`, {
-        method: "PATCH",
+      setStep("Funding escrow...");
+      canCleanupDraft = false;
+      const finalizeRes = await fetch(`${API}/hackathons/${hackathon.id}/escrow/finalize`, {
+        method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ escrow_pubkey: escrow_pda, onchain_pda: escrow_pda }),
+        body: JSON.stringify({ signed_tx_b64, escrow_pubkey: escrow_pda }),
       });
-      if (!patchRes.ok) throw new Error((await patchRes.json()).detail);
+      if (!finalizeRes.ok) throw new Error((await finalizeRes.json()).detail);
+
+      setStep("Opening hackathon…");
 
       setCreated({
         id: hackathon.id,
         title: form.title,
         prizeUsdc: Math.round(parseFloat(form.prize_usdc)),
       });
+      hackathonId = null;
     } catch (err: any) {
+      if (hackathonId && canCleanupDraft) {
+        await fetch(`${API}/hackathons/${hackathonId}`, {
+          method: "DELETE",
+          credentials: "include",
+        }).catch(() => {});
+      }
       console.error("create hackathon error:", err);
       const inner = err?.error;
       const detail = inner ? ` — ${inner?.message ?? JSON.stringify(inner)}` : "";

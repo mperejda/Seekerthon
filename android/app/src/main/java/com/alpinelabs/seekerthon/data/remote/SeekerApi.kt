@@ -70,6 +70,7 @@ data class HackathonCreateRequestDto(
     val prize_pool_usdc: Long,
     val voting_start: String,
     val voting_end: String,
+    val signing_flow: String = "wallet_first",
 )
 data class HackathonCreateResponseDto(
     val hackathon: HackathonDto,
@@ -77,6 +78,8 @@ data class HackathonCreateResponseDto(
     val escrow_pda: String,
 )
 data class EscrowSetRequestDto(val escrow_pubkey: String, val onchain_pda: String)
+data class EscrowFinalizeRequestDto(val signed_tx_b64: String, val escrow_pubkey: String)
+data class EscrowFinalizeResponseDto(val hackathon: HackathonDto, val tx_signature: String)
 data class RefundTxResponseDto(val transaction_b64: String)
 data class RefundConfirmRequestDto(val tx_signature: String)
 
@@ -122,6 +125,9 @@ interface SeekerApi {
 
     @PATCH("hackathons/{id}/escrow")
     suspend fun setEscrow(@Path("id") id: String, @Body body: EscrowSetRequestDto): HackathonDto
+
+    @POST("hackathons/{id}/escrow/finalize")
+    suspend fun finalizeEscrow(@Path("id") id: String, @Body body: EscrowFinalizeRequestDto): EscrowFinalizeResponseDto
 
     @DELETE("hackathons/{id}")
     suspend fun deleteDraftHackathon(@Path("id") id: String)

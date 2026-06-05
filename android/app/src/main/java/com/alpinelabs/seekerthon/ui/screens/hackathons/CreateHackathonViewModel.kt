@@ -3,7 +3,7 @@ package com.alpinelabs.seekerthon.ui.screens.hackathons
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import com.alpinelabs.seekerthon.data.remote.EscrowSetRequestDto
+import com.alpinelabs.seekerthon.data.remote.EscrowFinalizeRequestDto
 import com.alpinelabs.seekerthon.data.remote.HackathonCreateRequestDto
 import com.alpinelabs.seekerthon.data.remote.SeekerApi
 import com.alpinelabs.seekerthon.data.repository.WalletRepository
@@ -65,6 +65,7 @@ class CreateHackathonViewModel @Inject constructor(
 
         viewModelScope.launch {
             var hackathonId: String? = null
+            var canCleanupDraft = true
             try {
                 val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
@@ -81,22 +82,22 @@ class CreateHackathonViewModel @Inject constructor(
                 hackathonId = response.hackathon.id
 
                 _state.update { it.copy(step = "Waiting for wallet approval…") }
-                val signResult = walletRepo.signAndSendMintTransaction(sender, response.transaction_b64)
-                signResult.getOrElse { throw it }
+                val signedTxB64 = walletRepo.signAndSendTransaction(sender, response.transaction_b64).getOrThrow()
 
-                _state.update { it.copy(step = "Opening hackathon…") }
-                api.setEscrow(
+                _state.update { it.copy(step = "Funding escrow…") }
+                canCleanupDraft = false
+                api.finalizeEscrow(
                     response.hackathon.id,
-                    EscrowSetRequestDto(
+                    EscrowFinalizeRequestDto(
+                        signed_tx_b64 = signedTxB64,
                         escrow_pubkey = response.escrow_pda,
-                        onchain_pda = response.escrow_pda,
                     )
                 )
                 hackathonId = null // escrow set — no longer a draft to clean up
 
                 _state.update { it.copy(success = true, isLoading = false, step = null) }
             } catch (e: HttpException) {
-                hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
+                if (canCleanupDraft) hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
                 val detail = try {
                     JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
                 } catch (_: Exception) {
@@ -104,7 +105,7 @@ class CreateHackathonViewModel @Inject constructor(
                 }
                 _state.update { it.copy(error = detail, isLoading = false, step = null) }
             } catch (e: Exception) {
-                hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
+                if (canCleanupDraft) hackathonId?.let { runCatching { api.deleteDraftHackathon(it) } }
                 _state.update { it.copy(error = e.message ?: "Something went wrong", isLoading = false, step = null) }
             }
         }

@@ -1,6 +1,6 @@
 import re
 from pydantic import BaseModel, UUID4, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -84,6 +84,7 @@ class HackathonCreate(BaseModel):
     voting_start: datetime
     voting_end: datetime
     max_projects: int = 100
+    signing_flow: Literal["backend_presigned", "wallet_first"] = "backend_presigned"
 
 
 class HackathonUpdate(BaseModel):
@@ -97,6 +98,18 @@ class EscrowSetRequest(BaseModel):
     onchain_pda: str
 
     @field_validator("escrow_pubkey", "onchain_pda")
+    @classmethod
+    def validate_solana_pubkey(cls, v: str) -> str:
+        if not _SOLANA_PUBKEY_RE.match(v):
+            raise ValueError("Invalid Solana public key format")
+        return v
+
+
+class EscrowFinalizeRequest(BaseModel):
+    signed_tx_b64: str
+    escrow_pubkey: str
+
+    @field_validator("escrow_pubkey")
     @classmethod
     def validate_solana_pubkey(cls, v: str) -> str:
         if not _SOLANA_PUBKEY_RE.match(v):
@@ -128,6 +141,11 @@ class HackathonCreateResponse(BaseModel):
     hackathon: HackathonResponse
     transaction_b64: str
     escrow_pda: str
+
+
+class EscrowFinalizeResponse(BaseModel):
+    hackathon: HackathonResponse
+    tx_signature: str
 
 
 # ── Registrations ─────────────────────────────────────────────────────────────

@@ -8,11 +8,13 @@ from app.models.schemas import (
     HackathonCreate, HackathonResponse, HackathonCreateResponse, EscrowSetRequest,
     HackathonStatus, LeaderboardEntry, ProjectResponse,
     ClaimTxResponse, ReleaseTxResponse, VerifyReleaseRequest,
+    EscrowFinalizeRequest, EscrowFinalizeResponse,
 )
 import logging
 from app.services import r2_service as _r2
 from app.services.solana_service import (
     build_create_escrow_transaction,
+    cosign_and_submit_create_escrow_transaction,
     build_claim_prize_transaction,
     build_refund_transaction,
     verify_escrow_account_on_chain,
@@ -76,13 +78,22 @@ def _assert_no_other_active_hackathon(db, exclude_id: str | None = None) -> None
         raise HTTPException(status_code=409, detail=ACTIVE_HACKATHON_ERROR)
 
 
+def _open_hackathon_with_escrow(db, hackathon_id: str, escrow_pubkey: str) -> HackathonResponse:
+    result = db.table("hackathons").update({
+        "escrow_pubkey": escrow_pubkey,
+        "onchain_pda": escrow_pubkey,
+        "status": "open",
+    }).eq("id", hackathon_id).execute()
+    return HackathonResponse(**result.data[0])
+
+
 @router.post("/", response_model=HackathonCreateResponse)
 async def create_hackathon(body: HackathonCreate, request: Request):
     """Create hackathon and build escrow tx atomically. Draft is rolled back on tx build failure."""
     db = get_supabase_admin()
     _assert_no_other_active_hackathon(db)
     data = {
-        **body.model_dump(mode="json"),
+        **body.model_dump(mode="json", exclude={"signing_flow"}),
         "organizer_id": request.state.user_id,
         "max_projects": PROJECT_SUBMISSION_LIMIT,
         "status": "draft",
@@ -104,6 +115,7 @@ async def create_hackathon(body: HackathonCreate, request: Request):
             prize_usdc=hackathon["prize_pool_usdc"],
             voting_start_ts=voting_start_ts,
             voting_end_ts=voting_end_ts,
+            presign_platform_admin=body.signing_flow != "wallet_first",
         )
     except Exception as exc:
         try:
@@ -116,6 +128,75 @@ async def create_hackathon(body: HackathonCreate, request: Request):
         hackathon=HackathonResponse(**hackathon),
         transaction_b64=tx_b64,
         escrow_pda=escrow_pda,
+    )
+
+
+@router.post("/{hackathon_id}/escrow/finalize", response_model=EscrowFinalizeResponse)
+async def finalize_escrow(hackathon_id: str, body: EscrowFinalizeRequest, request: Request):
+    """Co-sign and submit a wallet-first create_hackathon transaction."""
+    db = get_supabase_admin()
+    hackathon = _assert_organizer(db, hackathon_id, request.state.user_id)
+    if hackathon["status"] != "draft":
+        raise HTTPException(status_code=409, detail="Only draft hackathons can be finalized")
+
+    voting_start_ts = int(_parse_dt(hackathon["voting_start"]).timestamp())
+    voting_end_ts = int(_parse_dt(hackathon["voting_end"]).timestamp())
+
+    verified = await verify_escrow_account_on_chain(
+        hackathon_id,
+        body.escrow_pubkey,
+        request.state.wallet_address,
+        int(hackathon["prize_pool_usdc"]),
+        voting_start_ts,
+        voting_end_ts,
+    )
+    if verified:
+        return EscrowFinalizeResponse(
+            hackathon=_open_hackathon_with_escrow(db, hackathon_id, body.escrow_pubkey),
+            tx_signature="",
+        )
+
+    try:
+        tx_signature = await cosign_and_submit_create_escrow_transaction(
+            signed_tx_b64=body.signed_tx_b64,
+            organizer_wallet=request.state.wallet_address,
+            hackathon_id_str=hackathon_id,
+            escrow_pubkey=body.escrow_pubkey,
+            prize_usdc=int(hackathon["prize_pool_usdc"]),
+            voting_start_ts=voting_start_ts,
+            voting_end_ts=voting_end_ts,
+        )
+        verified = await verify_escrow_account_on_chain(
+            hackathon_id,
+            body.escrow_pubkey,
+            request.state.wallet_address,
+            int(hackathon["prize_pool_usdc"]),
+            voting_start_ts,
+            voting_end_ts,
+        )
+    except Exception as exc:
+        verified = await verify_escrow_account_on_chain(
+            hackathon_id,
+            body.escrow_pubkey,
+            request.state.wallet_address,
+            int(hackathon["prize_pool_usdc"]),
+            voting_start_ts,
+            voting_end_ts,
+        )
+        if verified:
+            return EscrowFinalizeResponse(
+                hackathon=_open_hackathon_with_escrow(db, hackathon_id, body.escrow_pubkey),
+                tx_signature="",
+            )
+        _log.warning("finalize_escrow: failed hackathon=%s err=%s", hackathon_id, exc)
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not verified:
+        raise HTTPException(status_code=400, detail="Escrow account not confirmed on-chain")
+
+    return EscrowFinalizeResponse(
+        hackathon=_open_hackathon_with_escrow(db, hackathon_id, body.escrow_pubkey),
+        tx_signature=tx_signature,
     )
 
 
