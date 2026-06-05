@@ -11,6 +11,7 @@ android/META-INF/
 android/.idea/workspace.xml
 android/.idea/deploymentTargetSelector.xml
 android/.idea/migrations.xml
+android/.idea/other.xml
 android/*.iml
 android/app/*.iml
 
@@ -39,6 +40,7 @@ webapp/node_modules/
 webapp/.next/
 webapp/.env.local
 webapp/cache/
+webapp/tsconfig.tsbuildinfo
 
 # ================================
 # Supabase

@@ -11,8 +11,11 @@ escrow = "3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ"
 [programs.localnet]
 escrow = "3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ"
 
+[programs.mainnet]
+escrow = "3kDfZk1hoB6VBg1By5JrmJ9jkKpog628a42W7hiRUNLJ"
+
 [provider]
-cluster = "devnet"
+cluster = "mainnet"
 wallet = "~/.config/solana/id.json"
 
 [workspace]
