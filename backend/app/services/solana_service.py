@@ -1632,8 +1632,12 @@ def _validate_create_escrow_signed_tx(
         Pubkey.from_string(organizer_wallet),
         tx.message.recent_blockhash,
     )
-    if bytes(tx.message) != bytes(expected_message):
-        raise ValueError("Create escrow transaction message does not match expected draft transaction")
+    if tx.message.header != expected_message.header:
+        raise ValueError("Create escrow transaction header does not match expected draft transaction")
+    if list(tx.message.account_keys) != list(expected_message.account_keys):
+        raise ValueError("Create escrow transaction accounts do not match expected draft transaction")
+    if len(tx.message.instructions) != 1:
+        raise ValueError("Create escrow transaction must contain exactly one instruction")
 
     signer_keys = list(tx.message.signer_keys())
     organizer_pk = Pubkey.from_string(organizer_wallet)
