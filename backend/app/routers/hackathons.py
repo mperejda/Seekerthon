@@ -69,6 +69,13 @@ def _purge_hackathon_videos(hackathon_id: str) -> None:
     _log.info("purge: deleted %d R2 videos for hackathon %s", deleted, hackathon_id)
 
 
+def _delete_orphaned_drafts(db) -> None:
+    """Delete all draft hackathons. A draft without a completed finalize is abandoned."""
+    result = db.table("hackathons").delete().eq("status", "draft").execute()
+    if result.data:
+        _log.info("delete_orphaned_drafts: removed %d draft(s)", len(result.data))
+
+
 def _assert_no_other_active_hackathon(db, exclude_id: str | None = None) -> None:
     q = db.table("hackathons").select("id", count="exact").in_("status", ACTIVE_HACKATHON_STATUSES)
     if exclude_id:
@@ -91,6 +98,7 @@ def _open_hackathon_with_escrow(db, hackathon_id: str, escrow_pubkey: str) -> Ha
 async def create_hackathon(body: HackathonCreate, request: Request):
     """Create hackathon and build escrow tx atomically. Draft is rolled back on tx build failure."""
     db = get_supabase_admin()
+    _delete_orphaned_drafts(db)
     _assert_no_other_active_hackathon(db)
     data = {
         **body.model_dump(mode="json", exclude={"signing_flow"}),
@@ -188,10 +196,18 @@ async def finalize_escrow(hackathon_id: str, body: EscrowFinalizeRequest, reques
                 hackathon=_open_hackathon_with_escrow(db, hackathon_id, body.escrow_pubkey),
                 tx_signature="",
             )
-        _log.warning("finalize_escrow: failed hackathon=%s err=%s", hackathon_id, exc)
+        _log.warning("finalize_escrow: failed hackathon=%s err=%s — deleting draft", hackathon_id, exc)
+        try:
+            db.table("hackathons").delete().eq("id", hackathon_id).eq("status", "draft").execute()
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=str(exc))
 
     if not verified:
+        try:
+            db.table("hackathons").delete().eq("id", hackathon_id).eq("status", "draft").execute()
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail="Escrow account not confirmed on-chain")
 
     return EscrowFinalizeResponse(
