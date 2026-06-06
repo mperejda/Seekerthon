@@ -96,7 +96,9 @@ export default function CreateHackathonPage() {
       const signedTx = await signTransaction(tx);
 
       setStep("Preparing signed transaction...");
-      const signed_tx_b64 = bytesToBase64(signedTx.serialize());
+      const signed_tx_b64 = bytesToBase64(
+        signedTx.serialize({ requireAllSignatures: false, verifySignatures: false })
+      );
 
       setStep("Funding escrow...");
       canCleanupDraft = false;
