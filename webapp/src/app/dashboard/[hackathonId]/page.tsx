@@ -144,7 +144,6 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       if (!signTransaction) throw new Error("Wallet does not support signing");
       const signed = await signTransaction(tx);
       const txSignature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
-      await connection.confirmTransaction(txSignature, "confirmed");
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/claim/${projectId}`, {
         method: "POST",
@@ -179,7 +178,6 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       if (!signTransaction) throw new Error("Wallet does not support signing");
       const signed = await signTransaction(tx);
       const txSignature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
-      await connection.confirmTransaction(txSignature, "confirmed");
 
       const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
         method: "POST",
