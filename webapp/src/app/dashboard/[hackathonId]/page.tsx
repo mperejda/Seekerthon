@@ -95,6 +95,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [refunding, setRefunding] = useState(false);
+  const [refundSig, setRefundSig] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,10 +165,31 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
     }
   };
 
+  const confirmRefundBackend = async (sig: string) => {
+    const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tx_signature: sig }),
+    });
+    if (!confirmRes.ok) {
+      const body = await confirmRes.json().catch(() => null);
+      throw new Error(body?.detail ?? `Server error (${confirmRes.status})`);
+    }
+    setHackathon(await confirmRes.json());
+    setRefundSig(null);
+  };
+
   const refundOrganizer = async () => {
     setRefunding(true);
     setError(null);
     try {
+      // If a previous sendRawTransaction landed but the backend call failed,
+      // skip re-signing and just retry the confirmation.
+      if (refundSig) {
+        await confirmRefundBackend(refundSig);
+        return;
+      }
       const prepRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund/release-tx`, {
         credentials: "include",
       });
@@ -179,17 +201,10 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       const signed = await signTransaction(tx);
       const txSignature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
 
-      const confirmRes = await fetch(`${API}/hackathons/${hackathonId}/verify/refund`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tx_signature: txSignature }),
-      });
-      if (!confirmRes.ok) {
-        const body = await confirmRes.json().catch(() => null);
-        throw new Error(body?.detail ?? `Server error (${confirmRes.status})`);
-      }
-      setHackathon(await confirmRes.json());
+      // Store the signature before the backend call so it can be retried if the
+      // call fails (e.g. network drop or Phantom service-worker disconnection).
+      setRefundSig(txSignature);
+      await confirmRefundBackend(txSignature);
     } catch (err: any) {
       setError(await extractTxError(err, connection));
     } finally {
@@ -252,7 +267,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
           <p className="text-gray-400 mb-4">No registered projects submitted yet.</p>
           {isOrganizer && hackathonStatus === "verifying" && (
             <button onClick={refundOrganizer} disabled={refunding || !publicKey} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-              {refunding ? "Refunding..." : "Refund Prize to Organizer"}
+              {refunding ? "Refunding..." : refundSig ? "Retry Confirmation" : "Refund Prize to Organizer"}
             </button>
           )}
         </div>
