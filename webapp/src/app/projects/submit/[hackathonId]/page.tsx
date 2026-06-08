@@ -166,8 +166,6 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
           skipPreflight: false,
           preflightCommitment: "confirmed",
         });
-        setStepStatus("Confirming on-chain…");
-        await connection.confirmTransaction(tx_signature, "confirmed");
       }
 
       setStepStatus("Locking in your spot…");
