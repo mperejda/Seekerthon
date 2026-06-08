@@ -217,12 +217,10 @@ export default function SubmitProjectPage({ params }: { params: Promise<{ hackat
         const txBytes = Uint8Array.from(atob(transaction_b64), (c) => c.charCodeAt(0));
         const tx = Transaction.from(txBytes);
         const signed = await signTransaction(tx);
-        setStepStatus("Confirming on-chain…");
         const txSig = await connection.sendRawTransaction(signed.serialize(), {
           skipPreflight: false,
           preflightCommitment: "confirmed",
         });
-        await connection.confirmTransaction(txSig, "confirmed");
         setStepStatus("Finalizing submission…");
         const confirmRes = await fetch(`${API}/projects/${projectId}/submit/confirm`, {
           method: "POST",
