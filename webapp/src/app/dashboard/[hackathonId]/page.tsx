@@ -112,24 +112,10 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
       .finally(() => setLoading(false));
   }, [hackathonId]);
 
-  if (user === undefined) {
-    return <div className="text-center py-20 text-gray-400">Loading...</div>;
-  }
-  if (user === null) {
-    return (
-      <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">Connect your wallet</h1>
-        <p className="text-gray-500 mb-6">Sign in to view results or claim a prize.</p>
-        <WalletMultiButton />
-      </div>
-    );
-  }
-
   const hackathonStatus = displayHackathonStatus(hackathon);
   const votingEnded = hackathon ? new Date() >= new Date(hackathon.voting_end) : false;
-  const storedHackathonStatus = hackathon?.status ?? null;
   const sorted = [...projects].sort((a, b) => b.vote_count - a.vote_count);
-  const isOrganizer = !!hackathon && user.id === hackathon.organizer_id;
+  const isOrganizer = !!hackathon && user?.id === hackathon.organizer_id;
 
   const claimPrize = async (projectId: string) => {
     setClaiming(projectId);
@@ -227,7 +213,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
         </div>
       )}
       <div className="flex items-center gap-3 mb-8">
-        <p className="text-gray-500 text-sm">Review submissions and claim prizes</p>
+        <p className="text-gray-500 text-sm">Review submissions and results</p>
         {hackathonStatus && (
           <span className={`text-xs font-medium px-2 py-1 rounded-full ${STATUS_BADGE[hackathonStatus] ?? STATUS_BADGE.draft}`}>
             {STATUS_LABEL[hackathonStatus] ?? hackathonStatus}
@@ -294,12 +280,12 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
                 <div className="text-right shrink-0">
                   <div className="text-2xl font-bold text-purple-600">{project.vote_count.toFixed(1)}</div>
                   <div className="text-xs text-gray-400 mb-3">weighted votes</div>
-                  {project.status !== "winner" && votingEnded && idx === 0 && user.id === project.team_lead_id && (
+                  {project.status !== "winner" && votingEnded && idx === 0 && user?.id === project.team_lead_id && (
                     <button onClick={() => claimPrize(project.id)} disabled={claiming === project.id || !publicKey} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
                       {claiming === project.id ? "Claiming..." : "Claim Prize"}
                     </button>
                   )}
-                  {project.status === "winner" && user.id === project.team_lead_id && hackathon && (
+                  {project.status === "winner" && user?.id === project.team_lead_id && hackathon && (
                     <a
                       href={buildWinnerXPostUrl(project.name, hackathon.title)}
                       target="_blank"
