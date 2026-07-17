@@ -28,6 +28,8 @@ _log = logging.getLogger(__name__)
 
 ACTIVE_HACKATHON_STATUSES = ("draft", "open", "voting", "verifying")
 ACTIVE_HACKATHON_ERROR = "A hackathon is already active. Complete it before creating a new one."
+SUBMITTED_PROJECT_STATUSES = ("submitted", "approved", "winner")
+APPROVED_PROJECT_STATUSES = ("approved", "winner")
 
 
 def _parse_dt(s: str) -> datetime:
@@ -44,7 +46,7 @@ def _submitted_project_count(db, hackathon_id: str) -> int:
     """Registered-but-not-submitted projects do not block the organizer refund."""
     result = db.table("projects").select("id", count="exact") \
         .eq("hackathon_id", hackathon_id) \
-        .in_("status", ["submitted", "approved", "winner"]) \
+        .in_("status", SUBMITTED_PROJECT_STATUSES) \
         .execute()
     return result.count or 0
 
@@ -266,7 +268,7 @@ async def list_hackathons(
     result = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     hackathons = []
     for h in result.data:
-        project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).in_("status", ["submitted", "approved"]).execute()
+        project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).in_("status", APPROVED_PROJECT_STATUSES).execute()
         reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
         hackathons.append(HackathonResponse(
             **h,
@@ -282,7 +284,7 @@ async def get_hackathon(hackathon_id: str):
     result = db.table("hackathons").select("*").eq("id", hackathon_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Hackathon not found")
-    project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).in_("status", ["submitted", "approved"]).execute()
+    project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).in_("status", APPROVED_PROJECT_STATUSES).execute()
     reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
     return HackathonResponse(
         **result.data,
@@ -543,7 +545,7 @@ def _winning_project(db, hackathon_id: str) -> dict | None:
     result = db.table("projects") \
         .select("id,team_lead_id,onchain_pda,vote_count,created_at") \
         .eq("hackathon_id", hackathon_id) \
-        .in_("status", ["submitted", "approved", "winner"]) \
+        .in_("status", SUBMITTED_PROJECT_STATUSES) \
         .not_.is_("onchain_pda", "null") \
         .order("vote_count", desc=True) \
         .order("created_at") \
