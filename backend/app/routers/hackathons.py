@@ -266,7 +266,7 @@ async def list_hackathons(
     result = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     hackathons = []
     for h in result.data:
-        project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
+        project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", h["id"]).in_("status", ["submitted", "approved"]).execute()
         reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", h["id"]).execute()
         hackathons.append(HackathonResponse(
             **h,
@@ -282,7 +282,7 @@ async def get_hackathon(hackathon_id: str):
     result = db.table("hackathons").select("*").eq("id", hackathon_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Hackathon not found")
-    project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
+    project_counts = db.table("projects").select("id", count="exact").eq("hackathon_id", hackathon_id).in_("status", ["submitted", "approved"]).execute()
     reg_counts = db.table("hackathon_registrations").select("id", count="exact").eq("hackathon_id", hackathon_id).execute()
     return HackathonResponse(
         **result.data,
