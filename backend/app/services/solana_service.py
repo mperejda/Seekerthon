@@ -992,6 +992,10 @@ async def build_usdc_transfer_transaction(buyer_wallet: str, amount_raw: int) ->
     if sim_err is not None:
         logs = (sim.get("result") or {}).get("value", {}).get("logs", [])
         _log.error("USDC transfer pre-flight failed err=%s logs=%s", sim_err, logs)
+        # InvalidAccountData on the transfer instruction means the buyer has no USDC token account
+        instr_err = sim_err.get("InstructionError") if isinstance(sim_err, dict) else None
+        if isinstance(instr_err, list) and len(instr_err) >= 2 and instr_err[1] == "InvalidAccountData":
+            raise ValueError("Your wallet does not have a USDC token account. Please add USDC to your wallet before purchasing a Builder Pass.")
         raise Exception(f"USDC transfer simulation failed: {sim_err} — logs: {logs[-3:] if logs else []}")
 
     return tx_b64
