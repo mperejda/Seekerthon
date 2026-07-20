@@ -559,8 +559,12 @@ async def build_unsigned_combined_mint_transaction(
             + _borsh_str("Alpine Labs Builder Pass")
             + _borsh_str("ALBP")
             + _borsh_str(settings.builder_pass_metadata_uri)
-            + struct.pack("<H", 0)
-            + bytes([0])                       # creators: None
+            + struct.pack("<H", 500)            # seller_fee_basis_points = 5%
+            + bytes([1])                       # creators: Some
+            + struct.pack("<I", 1)             # 1 creator
+            + bytes(authority_pk)              # creator pubkey
+            + bytes([1])                       # verified = true (authority signs this tx)
+            + bytes([100])                     # share = 100%
             + bytes([1])                       # collection: Some
             + bytes([0])                       # verified = false
             + bytes(collection_mint_pk)
@@ -772,8 +776,12 @@ async def mint_nft_server_side(buyer_wallet: str) -> tuple[str, str]:
             + _borsh_str("Alpine Labs Builder Pass")
             + _borsh_str("ALBP")
             + _borsh_str(settings.builder_pass_metadata_uri)
-            + struct.pack("<H", 0)
-            + bytes([0])                       # creators: None
+            + struct.pack("<H", 500)            # seller_fee_basis_points = 5%
+            + bytes([1])                       # creators: Some
+            + struct.pack("<I", 1)             # 1 creator
+            + bytes(authority_pk)              # creator pubkey
+            + bytes([1])                       # verified = true (authority signs this tx)
+            + bytes([100])                     # share = 100%
             + bytes([1])                       # collection: Some
             + bytes([0])                       # verified = false (VerifySizedCollectionItem follows)
             + bytes(collection_mint_pk)
