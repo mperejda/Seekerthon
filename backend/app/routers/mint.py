@@ -114,6 +114,8 @@ async def prepare_builder_pass_mint(request: Request):
         tx_b64 = await build_usdc_transfer_transaction(request.state.wallet_address, price)
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         _log.exception("Failed to build Builder Pass payment transaction")
         raise HTTPException(status_code=500, detail=str(exc))
