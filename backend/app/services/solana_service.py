@@ -1423,6 +1423,38 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
 
 MEMO_PROGRAM_ID = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
 
+# AllDomains (ANS) — Seeker ID (.skr) reverse lookup
+_ANS_PROGRAM_ID = Pubkey.from_string("ALTNSZ46uaAUU7XUV6awvdorLGqAsPwa9shm7h4uP2FK")
+_TLD_HOUSE_PROGRAM_ID = Pubkey.from_string("TLDHkysf5pCnKsVA4gXpNvmy7psXLPEu4LAdDJthT9S")
+
+
+async def get_skr_id(wallet_address: str) -> str | None:
+    """Resolve a wallet address to its primary .skr Seeker ID via AllDomains main domain PDA.
+    Returns None if the wallet has no main domain set."""
+    user_pk = Pubkey.from_string(wallet_address)
+    pda, _ = Pubkey.find_program_address(
+        [b"main_domain", bytes(user_pk)],
+        _TLD_HOUSE_PROGRAM_ID,
+    )
+    resp = await _rpc_post(
+        "getAccountInfo",
+        [str(pda), {"encoding": "base64"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    account = (resp.get("result") or {}).get("value")
+    if not account:
+        return None
+    data = base64.b64decode(account["data"][0])
+    offset = 8  # skip 8-byte Anchor discriminator
+    domain_len = struct.unpack_from("<I", data, offset)[0]
+    offset += 4
+    domain = data[offset:offset + domain_len].decode("utf-8")
+    offset += domain_len
+    tld_len = struct.unpack_from("<I", data, offset)[0]
+    offset += 4
+    tld = data[offset:offset + tld_len].decode("utf-8")
+    return f"{domain}.{tld}"
+
 
 async def build_vote_transaction(
     voter_wallet: str,

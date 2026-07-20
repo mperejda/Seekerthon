@@ -20,6 +20,7 @@ class DeviceTokenRequest(BaseModel):
     token: str
 from app.services.solana_service import (
     get_skr_balance,
+    get_skr_id,
     compute_vote_weight,
     verify_builder_pass_holder,
     verify_seeker_genesis_holder,
@@ -115,6 +116,14 @@ async def login(body: UserCreate, response: Response):
     # Only on-chain staked SKR contributes to vote weight — liquid balance does not.
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)
 
+    skr_id_lookup_ok = True
+    skr_id = None
+    try:
+        skr_id = await get_skr_id(body.wallet_address)
+    except Exception as exc:
+        log.warning("SKR ID lookup failed for %s: %s", body.wallet_address, exc)
+        skr_id_lookup_ok = False
+
     user_data = {
         "wallet_address": body.wallet_address,
         "skr_balance": skr_balance,
@@ -123,6 +132,8 @@ async def login(body: UserCreate, response: Response):
         "is_seeker_verified": is_seeker_verified,
         "has_builder_pass": has_builder_pass,
     }
+    if skr_id_lookup_ok:
+        user_data["skr_id"] = skr_id
 
     result = db.table("users").upsert(user_data, on_conflict="wallet_address").execute()
     user = result.data[0]
@@ -169,13 +180,20 @@ async def get_me(request: Request):
         has_builder_pass = existing.data.get("has_builder_pass", False)
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)
 
-    result = db.table("users").update({
+    update_data: dict = {
         "skr_balance": skr_balance,
         "skr_staked": skr_staked,
         "vote_multiplier": vote_multiplier,
         "is_seeker_verified": is_seeker_verified,
         "has_builder_pass": has_builder_pass,
-    }).eq("id", user_id).execute()
+    }
+    try:
+        skr_id = await get_skr_id(wallet)
+        update_data["skr_id"] = skr_id
+    except Exception as exc:
+        log.warning("SKR ID lookup failed for %s: %s", wallet, exc)
+
+    result = db.table("users").update(update_data).eq("id", user_id).execute()
 
     return UserResponse(**result.data[0])
 

@@ -40,6 +40,7 @@ class UserResponse(UserBase):
     vote_multiplier: float = 1.0
     is_seeker_verified: bool = False
     has_builder_pass: bool = False
+    skr_id: Optional[str] = None
     created_at: datetime
 
     class Config:
