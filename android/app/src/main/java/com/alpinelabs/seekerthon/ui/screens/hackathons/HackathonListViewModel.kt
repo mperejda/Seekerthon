@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import retrofit2.HttpException
 import java.time.Instant
 import javax.inject.Inject
@@ -143,6 +144,11 @@ class HackathonListViewModel @Inject constructor(
                 // Step 3: backend submits payment, verifies buyer-paid fees, then mints the NFT
                 api.claimBuilderPass(MintClaimRequestDto(signed_tx_b64 = signedTxB64, mint_pubkey = prepare.mint_pubkey))
                 _state.value = _state.value.copy(isMinting = false, hasBuilderPass = true, mintSuccess = true)
+            } catch (e: HttpException) {
+                val detail = try {
+                    JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
+                } catch (_: Exception) { e.message ?: "Mint failed" }
+                _state.value = _state.value.copy(isMinting = false, error = detail)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isMinting = false, error = e.message ?: "Mint failed")
             }
