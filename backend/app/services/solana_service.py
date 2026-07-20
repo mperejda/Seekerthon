@@ -1426,34 +1426,98 @@ MEMO_PROGRAM_ID = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcH
 # AllDomains (ANS) — Seeker ID (.skr) reverse lookup
 _ANS_PROGRAM_ID = Pubkey.from_string("ALTNSZ46uaAUU7XUV6awvdorLGqAsPwa9shm7h4uP2FK")
 _TLD_HOUSE_PROGRAM_ID = Pubkey.from_string("TLDHkysf5pCnKsVA4gXpNvmy7psXLPEu4LAdDJthT9S")
+# .skr TLD parent account (F3A8kuikEiu6k2399oSJ1PWfcJYDHqpwoQ2e8psSDNuF)
+_SKR_TLD_PARENT_B58 = "F3A8kuikEiu6k2399oSJ1PWfcJYDHqpwoQ2e8psSDNuF"
+# Borsh-encoded ".skr" TLD string used to identify the registration instruction
+_SKR_TLD_MARKER = b"\x04\x00\x00\x00.skr"
 
 
 async def get_skr_id(wallet_address: str) -> str | None:
-    """Resolve a wallet address to its primary .skr Seeker ID via AllDomains main domain PDA.
-    Returns None if the wallet has no main domain set."""
+    """Resolve a wallet address to its .skr Seeker ID.
+
+    Fast path: AllDomains main_domain PDA (works when user has set a primary domain).
+    Fallback: scan ANS name accounts under the .skr TLD parent and extract the name
+    from the original registration transaction — this covers Seeker device registrations
+    that never create a main_domain PDA.
+    Returns None if no .skr domain is found.
+    """
     user_pk = Pubkey.from_string(wallet_address)
-    pda, _ = Pubkey.find_program_address(
+
+    # Fast path — single getAccountInfo call
+    main_pda, _ = Pubkey.find_program_address(
         [b"main_domain", bytes(user_pk)],
         _TLD_HOUSE_PROGRAM_ID,
     )
     resp = await _rpc_post(
         "getAccountInfo",
-        [str(pda), {"encoding": "base64"}],
+        [str(main_pda), {"encoding": "base64"}],
         rpc_url=MAINNET_RPC_URL,
     )
     account = (resp.get("result") or {}).get("value")
-    if not account:
+    if account:
+        data = base64.b64decode(account["data"][0])
+        offset = 8
+        domain_len = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        domain = data[offset:offset + domain_len].decode("utf-8")
+        offset += domain_len
+        tld_len = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        tld = data[offset:offset + tld_len].decode("utf-8")
+        return f"{domain}.{tld}"
+
+    # Fallback — find .skr name account(s) owned by wallet, parse registration tx
+    pa_resp = await _rpc_post(
+        "getProgramAccounts",
+        [str(_ANS_PROGRAM_ID), {
+            "encoding": "base64",
+            "filters": [
+                {"memcmp": {"offset": 8, "bytes": _SKR_TLD_PARENT_B58}},
+                {"memcmp": {"offset": 40, "bytes": wallet_address}},
+            ],
+        }],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    accounts = pa_resp.get("result") or []
+    if not accounts:
         return None
-    data = base64.b64decode(account["data"][0])
-    offset = 8  # skip 8-byte Anchor discriminator
-    domain_len = struct.unpack_from("<I", data, offset)[0]
-    offset += 4
-    domain = data[offset:offset + domain_len].decode("utf-8")
-    offset += domain_len
-    tld_len = struct.unpack_from("<I", data, offset)[0]
-    offset += 4
-    tld = data[offset:offset + tld_len].decode("utf-8")
-    return f"{domain}.{tld}"
+
+    name_account_pubkey = accounts[0]["pubkey"]
+    sigs_resp = await _rpc_post(
+        "getSignaturesForAddress",
+        [name_account_pubkey, {"limit": 10}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    sigs = sigs_resp.get("result") or []
+    if not sigs:
+        return None
+
+    oldest_sig = sigs[-1]["signature"]
+    tx_resp = await _rpc_post(
+        "getTransaction",
+        [oldest_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    ixs = (
+        (tx_resp.get("result") or {})
+        .get("transaction", {})
+        .get("message", {})
+        .get("instructions", [])
+    )
+    for ix in ixs:
+        raw_data = ix.get("data", "")
+        if not raw_data:
+            continue
+        raw = b58decode(raw_data)
+        if _SKR_TLD_MARKER not in raw or len(raw) < 13:
+            continue
+        name_len = struct.unpack_from("<I", raw, 8)[0]
+        if not 1 <= name_len <= 63:
+            continue
+        name = raw[12:12 + name_len].decode("utf-8", errors="replace").strip()
+        return f"{name}.skr"
+
+    return None
 
 
 async def build_vote_transaction(
