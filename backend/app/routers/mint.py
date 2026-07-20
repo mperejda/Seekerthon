@@ -105,6 +105,7 @@ async def prepare_builder_pass_mint(request: Request):
     Build a buyer-only payment transaction that Seeker can simulate cleanly.
     The buyer pays the USDC Builder Pass price; backend pays NFT mint costs.
     """
+    _log.info("Builder Pass prepare: wallet=%s", request.state.wallet_address)
     if _already_owns(request.state.user_id):
         raise HTTPException(status_code=409, detail="Already owns a Builder Pass")
 
