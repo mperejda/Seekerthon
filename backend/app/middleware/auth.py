@@ -30,6 +30,7 @@ PUBLIC_GET_PATTERNS = (
     re.compile(r"^/api/v1/hackathons/[^/]+/registration$"),
     re.compile(r"^/api/v1/projects/[^/]+$"),
     re.compile(r"^/api/v1/projects/hackathon/[^/]+$"),
+    re.compile(r"^/api/v1/metadata/"),
 )
 
 
