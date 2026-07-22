@@ -1,0 +1,23 @@
+CREATE TABLE support_nft_mints (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                   UUID NOT NULL REFERENCES users(id),
+  project_id                UUID NOT NULL REFERENCES projects(id),
+  hackathon_id              UUID NOT NULL REFERENCES hackathons(id),
+  wallet_address            TEXT NOT NULL,
+  builder_wallet            TEXT NOT NULL,
+  asset_id                  TEXT UNIQUE,
+  mint_tx_signature         TEXT UNIQUE,
+  payment_tx_signature      TEXT UNIQUE,
+  price_usdc_raw            BIGINT NOT NULL,
+  treasury_amount_raw       BIGINT NOT NULL,
+  builder_amount_raw        BIGINT NOT NULL,
+  mint_sol_spent_lamports   BIGINT,
+  mint_sol_spent_usd        NUMERIC(20, 8),
+  sol_usd_price_at_mint     NUMERIC(20, 8),
+  sol_usd_price_source      TEXT,
+  sol_usd_price_checked_at  TIMESTAMPTZ,
+  status                    TEXT NOT NULL CHECK (status IN ('confirmed', 'reconciled_error')),
+  raw_transaction_json      JSONB,
+  created_at                TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (wallet_address, project_id)
+);

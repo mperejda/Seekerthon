@@ -1,0 +1,11 @@
+{
+  "name": "setup-support-nft",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@metaplex-foundation/mpl-bubblegum": "^1.0.1",
+    "@metaplex-foundation/mpl-token-metadata": "^3.1.0",
+    "@metaplex-foundation/umi": "^0.8.9",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.8.9"
+  }
+}

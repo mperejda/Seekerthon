@@ -316,3 +316,32 @@ class ClaimTxResponse(BaseModel):
     winner_wallet: str
     prize_lamports: int
     expires_at: datetime
+
+
+# ── Support NFT ───────────────────────────────────────────────────────────────
+
+class SupportNftPrepareRequest(BaseModel):
+    project_id: UUID4
+
+
+class SupportNftPrepareResponse(BaseModel):
+    transaction_b64: str
+    amount_display: str
+    treasury_amount_display: str
+    builder_amount_display: str
+    project_name: str
+    project_id: str
+
+
+class SupportNftClaimRequest(BaseModel):
+    signed_tx_b64: str
+    project_id: UUID4
+
+
+class SupportNftClaimResponse(BaseModel):
+    success: bool
+    tx_signature: str
+
+
+class SupportNftMineResponse(BaseModel):
+    project_ids: List[str]

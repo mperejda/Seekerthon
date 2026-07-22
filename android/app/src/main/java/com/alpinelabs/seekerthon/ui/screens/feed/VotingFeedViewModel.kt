@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import com.alpinelabs.seekerthon.data.remote.RefundConfirmRequestDto
 import com.alpinelabs.seekerthon.data.remote.SeekerApi
+import com.alpinelabs.seekerthon.data.remote.SupportNftClaimRequestDto
+import com.alpinelabs.seekerthon.data.remote.SupportNftPrepareRequestDto
 import com.alpinelabs.seekerthon.data.remote.VoteConfirmRequestDto
 import com.alpinelabs.seekerthon.data.remote.VotePrepareRequestDto
 import com.alpinelabs.seekerthon.data.repository.WalletRepository
@@ -43,6 +45,10 @@ data class FeedUiState(
     val hasFinishedVoting: Boolean = false,
     val currentUserId: String = "",
     val isRefunding: Boolean = false,
+    val leaderboardOnly: Boolean = false,
+    val supportedProjectIds: Set<String> = emptySet(),
+    val mintingSupportProjectId: String? = null,
+    val supportNftError: String? = null,
 )
 
 @HiltViewModel
@@ -63,8 +69,10 @@ class VotingFeedViewModel @Inject constructor(
     val state: StateFlow<FeedUiState> = _state.asStateFlow()
 
     init {
+        _state.value = _state.value.copy(leaderboardOnly = leaderboardOnly)
         loadProjects()
         loadUserState()
+        if (leaderboardOnly) loadSupportNftsMine()
     }
 
     private fun loadProjects() {
@@ -96,10 +104,15 @@ class VotingFeedViewModel @Inject constructor(
             try {
                 val projects = api.listProjects(hackathonId).map { it.toProject() }
                 val voted = try { api.getMyVotes().toSet() } catch (_: Exception) { _state.value.votedProjectIds }
+                val supported = if (leaderboardOnly) {
+                    try { api.getSupportNftsMine(hackathonId).project_ids.toSet() }
+                    catch (_: Exception) { _state.value.supportedProjectIds }
+                } else _state.value.supportedProjectIds
                 val hackathon = _state.value.hackathon
                 _state.value = _state.value.copy(
                     projects = projects,
                     votedProjectIds = voted,
+                    supportedProjectIds = supported,
                     hasFinishedVoting = _state.value.hasFinishedVoting ||
                         leaderboardOnly ||
                         hackathon?.status == "completed",
@@ -112,6 +125,44 @@ class VotingFeedViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    private fun loadSupportNftsMine() {
+        viewModelScope.launch {
+            try {
+                val ids = api.getSupportNftsMine(hackathonId).project_ids.toSet()
+                _state.value = _state.value.copy(supportedProjectIds = ids)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun mintSupportNft(projectId: String, sender: ActivityResultSender) {
+        if (_state.value.supportedProjectIds.contains(projectId)) return
+
+        viewModelScope.launch {
+            _state.value = _state.value.copy(mintingSupportProjectId = projectId, supportNftError = null)
+            try {
+                val prepare = api.prepareSupportNft(SupportNftPrepareRequestDto(project_id = projectId))
+                val signResult = walletRepo.signAndSendMintTransaction(sender, prepare.transaction_b64)
+                val signedTx = signResult.getOrThrow()
+                api.claimSupportNft(SupportNftClaimRequestDto(signed_tx_b64 = signedTx, project_id = projectId))
+                _state.value = _state.value.copy(
+                    supportedProjectIds = _state.value.supportedProjectIds + projectId,
+                    mintingSupportProjectId = null,
+                )
+            } catch (e: HttpException) {
+                val detail = try {
+                    org.json.JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
+                } catch (_: Exception) { e.message ?: "Mint failed" }
+                _state.value = _state.value.copy(mintingSupportProjectId = null, supportNftError = detail)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(mintingSupportProjectId = null, supportNftError = e.message ?: "Mint failed")
+            }
+        }
+    }
+
+    fun dismissSupportNftError() {
+        _state.value = _state.value.copy(supportNftError = null)
     }
 
     private fun loadUserState() {

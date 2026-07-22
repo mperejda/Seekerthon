@@ -2153,6 +2153,279 @@ async def verify_escrow_account_on_chain(
     )
 
 
+# ── Builder Support NFT (Bubblegum cNFT) ─────────────────────────────────────
+
+BUBBLEGUM_PROGRAM_ID = Pubkey.from_string("BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY")
+SPL_NOOP_PROGRAM_ID = Pubkey.from_string("noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV")
+SPL_COMPRESSION_PROGRAM_ID = Pubkey.from_string("cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK")
+
+# TreeConfig account layout (Anchor account, 8-byte discriminator prefix):
+# 8 disc | 32 tree_creator | 32 tree_delegate | 8 total_mint_capacity | 8 num_minted | ...
+_TREE_CONFIG_TOTAL_MINT_CAPACITY_OFFSET = 72
+_TREE_CONFIG_NUM_MINTED_OFFSET = 80
+
+
+async def _read_tree_config(tree_address: str) -> tuple[int, int]:
+    """Return (total_mint_capacity, num_minted) from the Bubblegum TreeConfig account."""
+    tree_pk = Pubkey.from_string(tree_address)
+    tree_config_pda, _ = Pubkey.find_program_address([bytes(tree_pk)], BUBBLEGUM_PROGRAM_ID)
+    resp = await _rpc_post(
+        "getAccountInfo",
+        [str(tree_config_pda), {"encoding": "base64", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    value = (resp.get("result") or {}).get("value")
+    if not value:
+        raise Exception(f"Bubblegum tree config account not found for tree {tree_address}")
+    data = base64.b64decode(value["data"][0])
+    total = struct.unpack_from("<Q", data, _TREE_CONFIG_TOTAL_MINT_CAPACITY_OFFSET)[0]
+    minted = struct.unpack_from("<Q", data, _TREE_CONFIG_NUM_MINTED_OFFSET)[0]
+    return total, minted
+
+
+async def check_support_nft_tree_capacity() -> int:
+    """
+    Read the Bubblegum tree config and check remaining capacity.
+    Logs a WARNING at 80% full. Raises Exception at 100% full.
+    Returns num_minted (used as the nonce for the next mint's asset_id).
+    """
+    tree_address = _settings.support_nft_tree_address
+    if not tree_address:
+        raise ValueError("SUPPORT_NFT_TREE_ADDRESS is not configured")
+    total, minted = await _read_tree_config(tree_address)
+    if total > 0:
+        usage = minted / total
+        if usage >= 1.0:
+            raise Exception("Support NFT minting temporarily unavailable — Merkle tree at capacity. Create a new tree and update SUPPORT_NFT_TREE_ADDRESS.")
+        if usage >= 0.80:
+            _log.warning(
+                "Support NFT Merkle tree is %.0f%% full (%d / %d minted). "
+                "Create a new tree soon and update SUPPORT_NFT_TREE_ADDRESS.",
+                usage * 100, minted, total,
+            )
+    return minted
+
+
+async def build_support_nft_payment_transaction(
+    buyer_wallet: str,
+    builder_wallet: str,
+    total_amount_raw: int,
+    treasury_bps: int,
+) -> str:
+    """
+    Build an unsigned USDC payment transaction that splits the fee between
+    the Alpine Labs treasury and the builder.
+      Transfer 1: buyer → treasury (treasury_bps / 10000 of total)
+      Transfer 2: buyer → builder  (remainder)
+    Buyer is the sole signer. Both recipient ATAs are created idempotently.
+    """
+    settings = _settings
+    buyer_pk = Pubkey.from_string(buyer_wallet)
+    treasury_pk = Pubkey.from_string(settings.builder_pass_treasury)
+    builder_pk = Pubkey.from_string(builder_wallet)
+    usdc_mint_pk = Pubkey.from_string(USDC_MINT)
+
+    treasury_amount = total_amount_raw * treasury_bps // 10000
+    builder_amount = total_amount_raw - treasury_amount
+
+    buyer_ata = _find_ata(buyer_pk, usdc_mint_pk)
+    treasury_ata = _find_ata(treasury_pk, usdc_mint_pk)
+    builder_ata = _find_ata(builder_pk, usdc_mint_pk)
+
+    def _create_ata_ix(payer: Pubkey, ata: Pubkey, owner: Pubkey) -> Instruction:
+        return Instruction(
+            program_id=ASSOCIATED_TOKEN_PROGRAM,
+            accounts=[
+                AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+                AccountMeta(pubkey=ata, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=owner, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=usdc_mint_pk, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+            ],
+            data=bytes([1]),  # idempotent create
+        )
+
+    def _transfer_ix(src: Pubkey, dst: Pubkey, amount: int) -> Instruction:
+        return Instruction(
+            program_id=TOKEN_PROGRAM_ID,
+            accounts=[
+                AccountMeta(pubkey=src, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=dst, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=buyer_pk, is_signer=True, is_writable=False),
+            ],
+            data=bytes([3]) + struct.pack("<Q", amount),
+        )
+
+    instructions = [
+        _create_ata_ix(buyer_pk, treasury_ata, treasury_pk),
+        _create_ata_ix(buyer_pk, builder_ata, builder_pk),
+        _transfer_ix(buyer_ata, treasury_ata, treasury_amount),
+        _transfer_ix(buyer_ata, builder_ata, builder_amount),
+    ]
+
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash(instructions, buyer_pk, recent_blockhash)
+    tx = Transaction.new_unsigned(msg)
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
+
+    sim = await _rpc_post(
+        "simulateTransaction",
+        [tx_b64, {"encoding": "base64", "sigVerify": False, "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    sim_err = (sim.get("result") or {}).get("value", {}).get("err")
+    if sim_err is not None:
+        logs = (sim.get("result") or {}).get("value", {}).get("logs", [])
+        _log.error("Support NFT payment pre-flight failed err=%s logs=%s", sim_err, logs)
+        instr_err = sim_err.get("InstructionError") if isinstance(sim_err, dict) else None
+        if isinstance(instr_err, list) and len(instr_err) >= 2 and instr_err[1] == "InvalidAccountData":
+            raise ValueError("Your wallet does not have a USDC token account. Please add USDC to your wallet first.")
+        raise Exception(f"Support NFT payment simulation failed: {sim_err} — logs: {logs[-3:] if logs else []}")
+
+    return tx_b64
+
+
+async def verify_support_nft_payment(
+    tx_signature: str,
+    buyer_wallet: str,
+    builder_wallet: str,
+    expected_total_raw: int,
+    treasury_bps: int,
+) -> dict[str, Any]:
+    """
+    Fetch and verify the split USDC payment on-chain.
+    Confirms that the treasury received its share and the builder received theirs.
+    Returns the confirmed transaction data.
+    Raises Exception if payment is invalid.
+    """
+    tx_data = await fetch_confirmed_transaction(tx_signature, rpc_url=MAINNET_RPC_URL)
+
+    message = tx_data.get("transaction", {}).get("message", {})
+    signer_pubkeys = {
+        acc.get("pubkey", "")
+        for acc in message.get("accountKeys", [])
+        if isinstance(acc, dict) and acc.get("signer")
+    }
+    if buyer_wallet not in signer_pubkeys:
+        raise Exception("Buyer did not sign the payment transaction")
+
+    treasury = _settings.builder_pass_treasury
+    expected_treasury = expected_total_raw * treasury_bps // 10000
+    expected_builder = expected_total_raw - expected_treasury
+
+    treasury_delta = _owner_token_delta(tx_data, USDC_MINT, treasury)
+    builder_delta = _owner_token_delta(tx_data, USDC_MINT, builder_wallet)
+
+    _log.info(
+        "Support NFT payment check: treasury_delta=%d (expected %d), builder_delta=%d (expected %d)",
+        treasury_delta, expected_treasury, builder_delta, expected_builder,
+    )
+
+    if treasury_delta < expected_treasury:
+        raise Exception(f"Treasury received {treasury_delta} raw USDC, expected {expected_treasury}")
+    if builder_delta < expected_builder:
+        raise Exception(f"Builder received {builder_delta} raw USDC, expected {expected_builder}")
+
+    return tx_data
+
+
+async def mint_support_cnft(
+    buyer_wallet: str,
+    metadata_uri: str,
+    project_name: str,
+) -> tuple[str, str]:
+    """
+    Mint a Builder Support compressed NFT to buyer_wallet via Bubblegum mintToCollectionV1.
+    Authority keypair is the sole signer — buyer receives the NFT without signing.
+    Returns (asset_id, tx_signature).
+    """
+    settings = _settings
+    authority_kp = SoldersKeypair.from_bytes(bytes(json.loads(settings.builder_pass_authority_keypair)))
+    authority_pk = authority_kp.pubkey()
+
+    buyer_pk = Pubkey.from_string(buyer_wallet)
+    tree_pk = Pubkey.from_string(settings.support_nft_tree_address)
+    collection_mint_pk = Pubkey.from_string(settings.support_nft_collection_mint)
+
+    # Check capacity and capture num_minted (= nonce for this mint's asset_id)
+    nonce = await check_support_nft_tree_capacity()
+
+    # Derive PDAs
+    tree_config_pda, _ = Pubkey.find_program_address([bytes(tree_pk)], BUBBLEGUM_PROGRAM_ID)
+    bubblegum_signer_pda, _ = Pubkey.find_program_address([b"collection_cpi"], BUBBLEGUM_PROGRAM_ID)
+    collection_metadata_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk)],
+        METADATA_PROGRAM_ID,
+    )
+    collection_edition_pda, _ = Pubkey.find_program_address(
+        [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(collection_mint_pk), b"edition"],
+        METADATA_PROGRAM_ID,
+    )
+
+    # Bubblegum MetadataArgs borsh layout — NOTE: creators is LAST (differs from Metaplex CreateMetadataAccountV3)
+    nft_name = f"Builder Support: {project_name}"[:32]  # Metaplex name limit
+    metadata_args = (
+        _borsh_str(nft_name)
+        + _borsh_str("BSUP")
+        + _borsh_str(metadata_uri)
+        + struct.pack("<H", 500)        # seller_fee_basis_points = 5%
+        + bytes([0])                    # primary_sale_happened = false
+        + bytes([1])                    # is_mutable = true
+        + bytes([0])                    # edition_nonce: None
+        + bytes([1, 0])                 # token_standard: Some(NonFungible=0)
+        + bytes([1])                    # collection: Some
+        + bytes([0])                    # collection.verified = false (instruction verifies it)
+        + bytes(collection_mint_pk)     # collection.key = 32 bytes
+        + bytes([0])                    # uses: None
+        + bytes([0])                    # token_program_version: Original = 0
+        + struct.pack("<I", 1)          # creators: Vec length = 1
+        + bytes(authority_pk)           # creator.address
+        + bytes([1])                    # creator.verified = true (authority signs this tx)
+        + bytes([100])                  # creator.share = 100%
+    )
+
+    ix_mint = Instruction(
+        program_id=BUBBLEGUM_PROGRAM_ID,
+        accounts=[
+            AccountMeta(pubkey=tree_config_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),       # leaf_owner
+            AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),       # leaf_delegate
+            AccountMeta(pubkey=tree_pk, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=True),     # payer
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),    # tree_creator_or_delegate
+            AccountMeta(pubkey=authority_pk, is_signer=True, is_writable=False),    # collection_authority
+            AccountMeta(pubkey=BUBBLEGUM_PROGRAM_ID, is_signer=False, is_writable=False),  # collection_authority_record_pda (no delegate)
+            AccountMeta(pubkey=collection_mint_pk, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=collection_metadata_pda, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=collection_edition_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=bubblegum_signer_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SPL_NOOP_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SPL_COMPRESSION_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=METADATA_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+        ],
+        data=_anchor_discriminator("mint_to_collection_v1") + metadata_args,
+    )
+
+    bh_resp = await _rpc_post("getLatestBlockhash", [{"commitment": "confirmed"}], rpc_url=MAINNET_RPC_URL)
+    recent_blockhash = Hash.from_string(bh_resp["result"]["value"]["blockhash"])
+    msg = Message.new_with_blockhash([ix_mint], authority_pk, recent_blockhash)
+    tx = Transaction([authority_kp], msg, recent_blockhash)
+    tx_b64 = base64.b64encode(bytes(tx)).decode()
+
+    mint_sig = await submit_and_confirm_transaction(tx_b64)
+    _log.info("Support cNFT minted: buyer=%s nonce=%d sig=%s", buyer_wallet, nonce, mint_sig)
+
+    # Compute asset_id from tree + nonce (nonce = num_minted at time of this mint)
+    asset_id_pda, _ = Pubkey.find_program_address(
+        [b"asset", bytes(tree_pk), struct.pack("<Q", nonce)],
+        BUBBLEGUM_PROGRAM_ID,
+    )
+    return str(asset_id_pda), mint_sig
+
+
 async def build_mark_submitted_transaction(
     user_wallet: str,
     hackathon_id_str: str,

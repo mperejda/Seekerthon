@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Registration fee (USDC, 6 decimals) collected at hackathon sign-up; goes to builder_pass_treasury
     registration_fee_usdc: int = 2_000_000  # $2.00 USDC; set to 0 to disable
 
+    # Builder Support NFT (cNFT via Bubblegum)
+    support_nft_price_usdc: int = 5_000_000       # $5.00 USDC (6 decimals)
+    support_nft_treasury_bps: int = 500            # 5% to treasury (500 basis points)
+    support_nft_tree_address: str = ""             # Bubblegum Merkle tree pubkey
+    support_nft_collection_mint: str = ""          # Collection NFT mint pubkey
+    support_nft_image_uri: str = ""                # Seekerthon logo URL for NFT image
+    api_base_url: str = "https://app.seekerthon.com"  # Base URL for dynamic metadata URIs
+
     # AWS Rekognition — separate IAM credentials from Cloudflare R2
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""

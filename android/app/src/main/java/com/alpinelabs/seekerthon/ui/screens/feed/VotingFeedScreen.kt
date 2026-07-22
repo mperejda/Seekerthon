@@ -72,6 +72,12 @@ fun VotingFeedScreen(
             isRefunding = state.isRefunding,
             onRefresh = { viewModel.refresh() },
             onRefund = { viewModel.refundOrganizer(activityResultSender) },
+            leaderboardOnly = state.leaderboardOnly,
+            supportedProjectIds = state.supportedProjectIds,
+            mintingSupportProjectId = state.mintingSupportProjectId,
+            supportNftError = state.supportNftError,
+            onMintSupportNft = { projectId -> viewModel.mintSupportNft(projectId, activityResultSender) },
+            onDismissSupportNftError = { viewModel.dismissSupportNftError() },
         )
         return
     }
@@ -270,6 +276,12 @@ private fun LeaderboardScreen(
     isRefunding: Boolean,
     onRefresh: () -> Unit,
     onRefund: () -> Unit,
+    leaderboardOnly: Boolean = false,
+    supportedProjectIds: Set<String> = emptySet(),
+    mintingSupportProjectId: String? = null,
+    supportNftError: String? = null,
+    onMintSupportNft: (String) -> Unit = {},
+    onDismissSupportNftError: () -> Unit = {},
 ) {
     val ranked = remember(projects) { projects.sortedByDescending { it.voteCount } }
     val isOrganizer = hackathon != null && hackathon.organizerId == currentUserId
@@ -366,11 +378,32 @@ private fun LeaderboardScreen(
                         rank = index + 1,
                         project = project,
                         isVoted = votedProjectIds.contains(project.id),
+                        leaderboardOnly = leaderboardOnly,
+                        isSupported = supportedProjectIds.contains(project.id),
+                        isMintingSupport = mintingSupportProjectId == project.id,
+                        anyMintInProgress = mintingSupportProjectId != null,
+                        onMintSupportNft = { onMintSupportNft(project.id) },
                         modifier = Modifier
                             .padding(horizontal = 16.dp)
                             .padding(top = 12.dp),
                     )
                 }
+            }
+        }
+
+        supportNftError?.let { error ->
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+                action = {
+                    TextButton(onClick = onDismissSupportNftError) {
+                        Text("Dismiss", color = Color.White)
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+            ) {
+                Text(error, color = MaterialTheme.colorScheme.onErrorContainer)
             }
         }
     }
@@ -382,6 +415,11 @@ private fun LeaderboardCard(
     project: Project,
     isVoted: Boolean,
     modifier: Modifier = Modifier,
+    leaderboardOnly: Boolean = false,
+    isSupported: Boolean = false,
+    isMintingSupport: Boolean = false,
+    anyMintInProgress: Boolean = false,
+    onMintSupportNft: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val rankColor = when (rank) {
@@ -504,6 +542,42 @@ private fun LeaderboardCard(
                             modifier = Modifier.size(36.dp),
                         ) {
                             Icon(Icons.Outlined.OpenInBrowser, "Demo", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            if (leaderboardOnly) {
+                if (isSupported) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFF1B4332).copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(14.dp))
+                            Text("Supported", color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onMintSupportNft,
+                        enabled = !anyMintInProgress,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 12.dp),
+                    ) {
+                        if (isMintingSupport) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Minting…", color = Color.White, fontSize = 14.sp)
+                        } else {
+                            Text("Mint Support NFT · \$5", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }

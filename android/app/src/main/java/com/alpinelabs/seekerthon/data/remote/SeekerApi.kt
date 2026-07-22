@@ -101,6 +101,17 @@ data class VoteResponseDto(
     val tx_signature: String,
 )
 
+data class SupportNftPrepareRequestDto(val project_id: String)
+data class SupportNftPrepareResponseDto(
+    val transaction_b64: String,
+    val amount_display: String,
+    val project_name: String,
+    val project_id: String,
+)
+data class SupportNftClaimRequestDto(val signed_tx_b64: String, val project_id: String)
+data class SupportNftClaimResponseDto(val success: Boolean, val tx_signature: String)
+data class SupportNftMineResponseDto(val project_ids: List<String>)
+
 // ── API Interface ──────────────────────────────────────────────────────────
 
 interface SeekerApi {
@@ -167,4 +178,13 @@ interface SeekerApi {
 
     @DELETE("users/device-token")
     suspend fun deleteDeviceToken(@Body body: DeviceTokenDto)
+
+    @POST("support-nft/prepare")
+    suspend fun prepareSupportNft(@Body body: SupportNftPrepareRequestDto): SupportNftPrepareResponseDto
+
+    @POST("support-nft/claim")
+    suspend fun claimSupportNft(@Body body: SupportNftClaimRequestDto): SupportNftClaimResponseDto
+
+    @GET("support-nft/mine")
+    suspend fun getSupportNftsMine(@Query("hackathon_id") hackathonId: String): SupportNftMineResponseDto
 }
