@@ -2389,7 +2389,7 @@ async def mint_support_cnft(
     ix_mint = Instruction(
         program_id=BUBBLEGUM_PROGRAM_ID,
         accounts=[
-            AccountMeta(pubkey=tree_config_pda, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=tree_config_pda, is_signer=False, is_writable=True),
             AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),       # leaf_owner
             AccountMeta(pubkey=buyer_pk, is_signer=False, is_writable=False),       # leaf_delegate
             AccountMeta(pubkey=tree_pk, is_signer=False, is_writable=True),
