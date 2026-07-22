@@ -127,7 +127,7 @@ async def prepare_support_nft(request: Request, body: SupportNftPrepareRequest):
     builder_wallet = _get_builder_wallet(project["team_lead_id"])
 
     db = get_supabase_admin()
-    existing = db.table("support_nft_mints").select("id").eq("wallet_address", buyer_wallet).eq("project_id", project_id).maybe_single().execute()
+    existing = db.table("support_nft_mints").select("id").eq("wallet_address", buyer_wallet).eq("project_id", project_id).limit(1).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="Already minted a Support NFT for this project")
 
@@ -172,9 +172,9 @@ async def claim_support_nft(request: Request, body: SupportNftClaimRequest):
         payment_sig = await submit_and_confirm_transaction(body.signed_tx_b64)
 
         # Idempotency: if we already processed this payment, return existing mint
-        existing = db.table("support_nft_mints").select("*").eq("payment_tx_signature", payment_sig).maybe_single().execute()
+        existing = db.table("support_nft_mints").select("*").eq("payment_tx_signature", payment_sig).limit(1).execute()
         if existing.data:
-            row = existing.data
+            row = existing.data[0]
             if row["wallet_address"] != buyer_wallet:
                 raise HTTPException(status_code=409, detail="Payment already used by another account")
             _log.info("Support NFT claim retry — reusing existing mint for payment=%s", payment_sig)
