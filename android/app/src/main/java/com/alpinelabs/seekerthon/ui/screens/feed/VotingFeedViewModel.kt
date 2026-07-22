@@ -143,7 +143,7 @@ class VotingFeedViewModel @Inject constructor(
             _state.value = _state.value.copy(mintingSupportProjectId = projectId, supportNftError = null)
             try {
                 val prepare = api.prepareSupportNft(SupportNftPrepareRequestDto(project_id = projectId))
-                val signResult = walletRepo.signAndSendMintTransaction(sender, prepare.transaction_b64)
+                val signResult = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64)
                 val signedTx = signResult.getOrThrow()
                 api.claimSupportNft(SupportNftClaimRequestDto(signed_tx_b64 = signedTx, project_id = projectId))
                 _state.value = _state.value.copy(
