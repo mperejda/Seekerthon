@@ -47,6 +47,7 @@ async def get_challenge(wallet_address: str):
     challenge = f"seeker-hackathon-login:{wallet_address}:{secrets.token_hex(16)}"
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     db = get_supabase_admin()
+    db.table("challenges").delete().lt("expires_at", datetime.now(timezone.utc).isoformat()).execute()
     db.table("challenges").insert({
         "challenge": challenge,
         "wallet_address": wallet_address,
