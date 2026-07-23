@@ -1,3 +1,4 @@
+import asyncio
 import base58
 import logging
 import math
@@ -98,32 +99,36 @@ async def login(body: UserCreate, response: Response):
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed wallet address or signature")
 
-    # Fetch on-chain state — fall back to safe defaults if RPC is rate-limited
-    try:
-        skr_balance, skr_staked = await get_skr_balance(body.wallet_address)
-    except Exception as exc:
-        log.warning("SKR balance lookup failed for %s: %s", body.wallet_address, exc)
-        skr_balance, skr_staked = 0, 0
-    try:
-        is_seeker_verified = await verify_seeker_genesis_holder(body.wallet_address)
-    except Exception as exc:
-        log.warning("Genesis check failed for %s: %s", body.wallet_address, exc)
-        is_seeker_verified = False
-    try:
-        has_builder_pass = await verify_builder_pass_holder(body.wallet_address)
-    except Exception as exc:
-        log.warning("Builder pass check failed for %s: %s", body.wallet_address, exc)
-        has_builder_pass = False
+    # Look up existing user so we can fall back to cached values if RPC fails.
+    existing = db.table("users").select("skr_balance,skr_staked,is_seeker_verified,has_builder_pass,skr_id").eq("wallet_address", body.wallet_address).maybe_single().execute()
+    cached = existing.data or {}
+
+    # Run all on-chain checks in parallel with a 5 s timeout each.
+    # Falls back to cached DB values for returning users; 0/False for brand-new ones.
+    _FAILED = object()
+    _TIMEOUT = 5.0
+
+    async def _timed(coro, fallback):
+        try:
+            return await asyncio.wait_for(coro, timeout=_TIMEOUT)
+        except Exception as exc:
+            log.warning("On-chain check failed or timed out for %s: %s", body.wallet_address, exc)
+            return fallback
+
+    (
+        (skr_balance, skr_staked),
+        is_seeker_verified,
+        has_builder_pass,
+        skr_id_result,
+    ) = await asyncio.gather(
+        _timed(get_skr_balance(body.wallet_address), (cached.get("skr_balance", 0), cached.get("skr_staked", 0))),
+        _timed(verify_seeker_genesis_holder(body.wallet_address), cached.get("is_seeker_verified", False)),
+        _timed(verify_builder_pass_holder(body.wallet_address), cached.get("has_builder_pass", False)),
+        _timed(get_skr_id(body.wallet_address), _FAILED),
+    )
+
     # Only on-chain staked SKR contributes to vote weight — liquid balance does not.
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)
-
-    skr_id_lookup_ok = True
-    skr_id = None
-    try:
-        skr_id = await get_skr_id(body.wallet_address)
-    except Exception as exc:
-        log.warning("SKR ID lookup failed for %s: %s", body.wallet_address, exc)
-        skr_id_lookup_ok = False
 
     user_data = {
         "wallet_address": body.wallet_address,
@@ -133,8 +138,8 @@ async def login(body: UserCreate, response: Response):
         "is_seeker_verified": is_seeker_verified,
         "has_builder_pass": has_builder_pass,
     }
-    if skr_id_lookup_ok:
-        user_data["skr_id"] = skr_id
+    if skr_id_result is not _FAILED:
+        user_data["skr_id"] = skr_id_result
 
     result = db.table("users").upsert(user_data, on_conflict="wallet_address").execute()
     user = result.data[0]
