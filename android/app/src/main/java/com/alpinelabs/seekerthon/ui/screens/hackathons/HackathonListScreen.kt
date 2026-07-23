@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -156,10 +157,10 @@ fun HackathonListScreen(
                         isSeekerVerified = state.isSeekerVerified,
                         hackathonsVoted = state.hackathonsVoted,
                         memberSince = state.memberSince,
+                        voteMultiplier = state.voteMultiplier,
                     )
                     BuilderPassCard(
                         hasBuilderPass = state.hasBuilderPass,
-                        voteMultiplier = state.voteMultiplier,
                         builderPassAvailable = state.builderPassAvailable,
                         builderPassUnavailableMessage = state.builderPassUnavailableMessage,
                         isMinting = state.isMinting,
@@ -175,7 +176,6 @@ fun HackathonListScreen(
 @Composable
 private fun BuilderPassCard(
     hasBuilderPass: Boolean,
-    voteMultiplier: Double,
     builderPassAvailable: Boolean,
     builderPassUnavailableMessage: String?,
     isMinting: Boolean,
@@ -212,7 +212,6 @@ private fun BuilderPassCard(
                     fontSize = 15.sp,
                     modifier = Modifier.weight(1f),
                 )
-                VotePowerChip(multiplier = voteMultiplier)
                 if (hasBuilderPass || mintSuccess) {
                     Icon(
                         Icons.Filled.CheckCircle,
@@ -272,6 +271,7 @@ private fun UserStatsCard(
     isSeekerVerified: Boolean,
     hackathonsVoted: Int,
     memberSince: String?,
+    voteMultiplier: Double,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -288,6 +288,8 @@ private fun UserStatsCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Member", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Spacer(Modifier.weight(1f))
+                VotePowerChip(multiplier = voteMultiplier)
                 if (memberSince != null) {
                     Text("Since $memberSince", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -295,11 +297,11 @@ private fun UserStatsCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "Seeker ID", value = skrId ?: "—")
-                StatItem(label = "Staked SKR", value = "%,d".format(skrStaked))
+                StatItem(label = "Staked SKR", value = "%,d".format(skrStaked), textAlign = TextAlign.End)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "SKR Rank", value = if (skrStakedRank != null) "#$skrStakedRank" else "—")
-                StatItem(label = "Percentile", value = if (skrStakedPercentile != null) "Top $skrStakedPercentile%" else "—")
+                StatItem(label = "Percentile", value = if (skrStakedPercentile != null) "Top $skrStakedPercentile%" else "—", textAlign = TextAlign.End)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "Hackathons Voted", value = hackathonsVoted.toString())
@@ -307,6 +309,7 @@ private fun UserStatsCard(
                     label = "Genesis Holder",
                     value = if (isSeekerVerified) "Yes" else "No",
                     valueColor = if (isSeekerVerified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End,
                 )
             }
         }
@@ -318,10 +321,14 @@ private fun StatItem(
     label: String,
     value: String,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    textAlign: TextAlign = TextAlign.Start,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = valueColor)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = if (textAlign == TextAlign.End) Alignment.End else Alignment.Start,
+    ) {
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = textAlign)
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = valueColor, textAlign = textAlign)
     }
 }
 
