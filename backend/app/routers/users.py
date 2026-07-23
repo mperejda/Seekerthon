@@ -115,6 +115,10 @@ async def login(body: UserCreate, response: Response):
             log.warning("On-chain check failed or timed out for %s: %s", body.wallet_address, exc)
             return fallback
 
+    # Genesis fallback: use cached value for returning users; _FAILED for new users
+    # so a timeout doesn't silently block a legitimate SGT holder on first login.
+    genesis_fallback = cached.get("is_seeker_verified", _FAILED)
+
     (
         (skr_balance, skr_staked),
         is_seeker_verified,
@@ -122,10 +126,15 @@ async def login(body: UserCreate, response: Response):
         skr_id_result,
     ) = await asyncio.gather(
         _timed(get_skr_balance(body.wallet_address), (cached.get("skr_balance", 0), cached.get("skr_staked", 0))),
-        _timed(verify_seeker_genesis_holder(body.wallet_address), cached.get("is_seeker_verified", False)),
+        _timed(verify_seeker_genesis_holder(body.wallet_address), genesis_fallback),
         _timed(verify_builder_pass_holder(body.wallet_address), cached.get("has_builder_pass", False)),
         _timed(get_skr_id(body.wallet_address), _FAILED),
     )
+
+    if is_seeker_verified is _FAILED:
+        raise HTTPException(status_code=503, detail="Unable to verify your Seeker Genesis Token. Please try again.")
+    if not is_seeker_verified:
+        raise HTTPException(status_code=403, detail="A Seeker Genesis Token is required to sign in.")
 
     # Only on-chain staked SKR contributes to vote weight — liquid balance does not.
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)

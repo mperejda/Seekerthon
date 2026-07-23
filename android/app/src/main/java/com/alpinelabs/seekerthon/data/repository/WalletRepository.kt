@@ -19,6 +19,8 @@ import com.alpinelabs.seekerthon.util.toUser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import retrofit2.HttpException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -76,13 +78,24 @@ class WalletRepository @Inject constructor(
                 val sigBase58 = signature.encodeBase58()
 
                 // Exchange signed challenge for JWT
-                val authToken = api.login(
-                    UserCreateDto(
-                        wallet_address = walletAddress,
-                        signature = sigBase58,
-                        challenge = challengeDto.challenge,
+                val authToken = try {
+                    api.login(
+                        UserCreateDto(
+                            wallet_address = walletAddress,
+                            signature = sigBase58,
+                            challenge = challengeDto.challenge,
+                        )
                     )
-                )
+                } catch (e: HttpException) {
+                    val detail = try {
+                        JSONObject(e.response()?.errorBody()?.string() ?: "").getString("detail")
+                    } catch (_: Exception) { null }
+                    throw Exception(detail ?: when (e.code()) {
+                        403 -> "A Seeker Genesis Token is required to sign in."
+                        503 -> "Unable to verify your Seeker Genesis Token. Please try again."
+                        else -> "Login failed (${e.code()})"
+                    })
+                }
 
                 tokenProvider.saveToken(authToken.access_token)
 
