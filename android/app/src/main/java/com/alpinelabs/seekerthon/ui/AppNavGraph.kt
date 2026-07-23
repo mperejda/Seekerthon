@@ -57,7 +57,14 @@ fun AppNavGraph() {
         }
 
         composable(Routes.ACTIVITY) {
-            ActivityScreen(onBack = { navController.popBackStack() })
+            ActivityScreen(
+                onBack = { navController.popBackStack() },
+                onSessionExpired = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
         }
 
         composable(Routes.CREATE_HACKATHON) {

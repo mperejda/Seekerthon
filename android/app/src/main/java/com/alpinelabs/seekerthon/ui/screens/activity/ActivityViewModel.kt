@@ -10,12 +10,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import javax.inject.Inject
 
 data class ActivityUiState(
     val isLoading: Boolean = true,
     val votedProjects: List<ActivityVotedProjectDto> = emptyList(),
     val supportNfts: List<ActivitySupportNftDto> = emptyList(),
+    val sessionExpired: Boolean = false,
     val error: String? = null,
 )
 
@@ -41,6 +43,12 @@ class ActivityViewModel @Inject constructor(
                     votedProjects = activity.voted_projects,
                     supportNfts = activity.support_nfts,
                 )
+            } catch (e: HttpException) {
+                if (e.code() == 401) {
+                    _state.value = ActivityUiState(isLoading = false, sessionExpired = true)
+                } else {
+                    _state.value = ActivityUiState(isLoading = false, error = e.message)
+                }
             } catch (e: Exception) {
                 _state.value = ActivityUiState(isLoading = false, error = e.message)
             }

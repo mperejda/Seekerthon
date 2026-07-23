@@ -182,7 +182,12 @@ async def get_me(request: Request):
     if not existing.data:
         raise HTTPException(status_code=404, detail="User not found")
 
-    skr_balance, skr_staked = await get_skr_balance(wallet)
+    try:
+        skr_balance, skr_staked = await get_skr_balance(wallet)
+    except Exception as exc:
+        log.warning("SKR balance lookup failed for %s, using cached value: %s", wallet, exc)
+        skr_balance = existing.data.get("skr_balance", 0)
+        skr_staked = existing.data.get("skr_staked", 0)
     try:
         is_seeker_verified = await verify_seeker_genesis_holder(wallet)
     except Exception as exc:
@@ -308,7 +313,7 @@ async def get_user(user_id: str, request: Request):
     if user_id != request.state.user_id:
         raise HTTPException(status_code=403, detail="Can only fetch your own user record")
     db = get_supabase_admin()
-    result = db.table("users").select("*").eq("id", user_id).single().execute()
+    result = db.table("users").select("*").eq("id", user_id).maybe_single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(**result.data)

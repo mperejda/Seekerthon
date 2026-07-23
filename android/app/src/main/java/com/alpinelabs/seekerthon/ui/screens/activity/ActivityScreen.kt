@@ -24,9 +24,14 @@ import com.alpinelabs.seekerthon.data.remote.ActivityVotedProjectDto
 @Composable
 fun ActivityScreen(
     onBack: () -> Unit,
+    onSessionExpired: () -> Unit = {},
     viewModel: ActivityViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+
+    if (state.sessionExpired) {
+        LaunchedEffect(Unit) { onSessionExpired() }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
