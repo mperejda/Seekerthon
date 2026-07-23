@@ -42,6 +42,8 @@ class UserResponse(UserBase):
     has_builder_pass: bool = False
     skr_id: Optional[str] = None
     hackathons_voted: int = 0
+    skr_staked_rank: Optional[int] = None
+    skr_staked_percentile: Optional[int] = None
     created_at: datetime
 
     class Config:

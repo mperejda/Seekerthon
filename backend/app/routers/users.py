@@ -1,5 +1,6 @@
 import base58
 import logging
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -202,7 +203,18 @@ async def get_me(request: Request):
         projects_res = db.table("projects").select("hackathon_id").in_("id", project_ids).execute()
         hackathons_voted = len({row["hackathon_id"] for row in (projects_res.data or [])})
 
-    return UserResponse(**result.data[0], hackathons_voted=hackathons_voted)
+    skr_staked_rank = None
+    skr_staked_percentile = None
+    if skr_staked > 0:
+        above_res = db.table("users").select("id", count="exact").gt("skr_staked", skr_staked).execute()
+        total_res = db.table("users").select("id", count="exact").gt("skr_staked", 0).execute()
+        count_above = above_res.count or 0
+        total_stakers = total_res.count or 0
+        skr_staked_rank = count_above + 1
+        if total_stakers > 0:
+            skr_staked_percentile = max(1, math.ceil(count_above / total_stakers * 100))
+
+    return UserResponse(**result.data[0], hackathons_voted=hackathons_voted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
 
 
 

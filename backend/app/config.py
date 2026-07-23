@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Vote weight config
     max_vote_multiplier: float = 5.0
-    skr_per_multiplier_step: int = 100
+    skr_per_multiplier_step: int = 4167
 
     # Cloudflare R2 storage (for project demo videos)
     r2_account_id: str = ""

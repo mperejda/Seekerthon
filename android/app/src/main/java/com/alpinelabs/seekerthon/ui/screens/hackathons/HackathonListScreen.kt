@@ -151,6 +151,8 @@ fun HackathonListScreen(
                     UserStatsCard(
                         skrId = state.skrId,
                         skrStaked = state.skrStaked,
+                        skrStakedRank = state.skrStakedRank,
+                        skrStakedPercentile = state.skrStakedPercentile,
                         isSeekerVerified = state.isSeekerVerified,
                         hackathonsVoted = state.hackathonsVoted,
                         memberSince = state.memberSince,
@@ -265,6 +267,8 @@ private fun BuilderPassCard(
 private fun UserStatsCard(
     skrId: String?,
     skrStaked: Long,
+    skrStakedRank: Int?,
+    skrStakedPercentile: Int?,
     isSeekerVerified: Boolean,
     hackathonsVoted: Int,
     memberSince: String?,
@@ -292,6 +296,10 @@ private fun UserStatsCard(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "Seeker ID", value = skrId ?: "—")
                 StatItem(label = "Staked SKR", value = "%,d".format(skrStaked))
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem(label = "SKR Rank", value = if (skrStakedRank != null) "#$skrStakedRank" else "—")
+                StatItem(label = "Percentile", value = if (skrStakedPercentile != null) "Top $skrStakedPercentile%" else "—")
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "Hackathons Voted", value = hackathonsVoted.toString())

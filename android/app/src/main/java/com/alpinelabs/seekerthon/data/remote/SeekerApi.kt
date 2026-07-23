@@ -17,6 +17,8 @@ data class UserDto(
     val has_builder_pass: Boolean = false,
     val skr_id: String? = null,
     val hackathons_voted: Int = 0,
+    val skr_staked_rank: Int? = null,
+    val skr_staked_percentile: Int? = null,
     val created_at: String,
 )
 
