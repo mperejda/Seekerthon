@@ -41,6 +41,7 @@ class UserResponse(UserBase):
     is_seeker_verified: bool = False
     has_builder_pass: bool = False
     skr_id: Optional[str] = None
+    votes_cast: int = 0
     hackathons_voted: int = 0
     skr_staked_rank: Optional[int] = None
     skr_staked_percentile: Optional[int] = None

@@ -198,6 +198,7 @@ async def get_me(request: Request):
 
     votes_res = db.table("votes").select("project_id").eq("voter_id", user_id).execute()
     project_ids = [row["project_id"] for row in (votes_res.data or [])]
+    votes_cast = len(project_ids)
     hackathons_voted = 0
     if project_ids:
         projects_res = db.table("projects").select("hackathon_id").in_("id", project_ids).execute()
@@ -214,7 +215,7 @@ async def get_me(request: Request):
         if total_stakers > 0:
             skr_staked_percentile = max(1, math.ceil(count_above / total_stakers * 100))
 
-    return UserResponse(**result.data[0], hackathons_voted=hackathons_voted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
+    return UserResponse(**result.data[0], votes_cast=votes_cast, hackathons_voted=hackathons_voted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
 
 
 

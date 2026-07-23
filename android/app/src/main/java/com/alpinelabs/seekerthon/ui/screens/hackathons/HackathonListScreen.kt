@@ -155,6 +155,7 @@ fun HackathonListScreen(
                         skrStakedRank = state.skrStakedRank,
                         skrStakedPercentile = state.skrStakedPercentile,
                         isSeekerVerified = state.isSeekerVerified,
+                        votesCast = state.votesCast,
                         hackathonsVoted = state.hackathonsVoted,
                         memberSince = state.memberSince,
                         voteMultiplier = state.voteMultiplier,
@@ -269,6 +270,7 @@ private fun UserStatsCard(
     skrStakedRank: Int?,
     skrStakedPercentile: Int?,
     isSeekerVerified: Boolean,
+    votesCast: Int,
     hackathonsVoted: Int,
     memberSince: String?,
     voteMultiplier: Double,
@@ -302,12 +304,14 @@ private fun UserStatsCard(
                 StatItem(label = "Percentile", value = if (skrStakedPercentile != null) "Top $skrStakedPercentile%" else "—", textAlign = TextAlign.End)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatItem(label = "Hackathons Voted", value = hackathonsVoted.toString())
+                StatItem(label = "Votes Cast", value = votesCast.toString())
+                StatItem(label = "Hackathons Voted", value = hackathonsVoted.toString(), textAlign = TextAlign.End)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(
                     label = "Genesis Holder",
                     value = if (isSeekerVerified) "Yes" else "No",
                     valueColor = if (isSeekerVerified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.End,
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
