@@ -41,6 +41,7 @@ class UserResponse(UserBase):
     is_seeker_verified: bool = False
     has_builder_pass: bool = False
     skr_id: Optional[str] = None
+    hackathons_voted: int = 0
     created_at: datetime
 
     class Config:

@@ -195,7 +195,14 @@ async def get_me(request: Request):
 
     result = db.table("users").update(update_data).eq("id", user_id).execute()
 
-    return UserResponse(**result.data[0])
+    votes_res = db.table("votes").select("project_id").eq("voter_id", user_id).execute()
+    project_ids = [row["project_id"] for row in (votes_res.data or [])]
+    hackathons_voted = 0
+    if project_ids:
+        projects_res = db.table("projects").select("hackathon_id").in_("id", project_ids).execute()
+        hackathons_voted = len({row["hackathon_id"] for row in (projects_res.data or [])})
+
+    return UserResponse(**result.data[0], hackathons_voted=hackathons_voted)
 
 
 

@@ -15,6 +15,8 @@ data class UserDto(
     val vote_multiplier: Double,
     val is_seeker_verified: Boolean,
     val has_builder_pass: Boolean = false,
+    val skr_id: String? = null,
+    val hackathons_voted: Int = 0,
     val created_at: String,
 )
 

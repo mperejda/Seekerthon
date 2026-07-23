@@ -1,11 +1,13 @@
 package com.alpinelabs.seekerthon.ui.screens.hackathons
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.outlined.EmojiEvents
@@ -145,9 +147,17 @@ fun HackathonListScreen(
                         }
                     }
                 }
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    UserStatsCard(
+                        skrId = state.skrId,
+                        skrStaked = state.skrStaked,
+                        isSeekerVerified = state.isSeekerVerified,
+                        hackathonsVoted = state.hackathonsVoted,
+                        memberSince = state.memberSince,
+                    )
                     BuilderPassCard(
                         hasBuilderPass = state.hasBuilderPass,
+                        voteMultiplier = state.voteMultiplier,
                         builderPassAvailable = state.builderPassAvailable,
                         builderPassUnavailableMessage = state.builderPassUnavailableMessage,
                         isMinting = state.isMinting,
@@ -163,6 +173,7 @@ fun HackathonListScreen(
 @Composable
 private fun BuilderPassCard(
     hasBuilderPass: Boolean,
+    voteMultiplier: Double,
     builderPassAvailable: Boolean,
     builderPassUnavailableMessage: String?,
     isMinting: Boolean,
@@ -197,9 +208,10 @@ private fun BuilderPassCard(
                     "Alpine Labs Builder Pass",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
+                    modifier = Modifier.weight(1f),
                 )
+                VotePowerChip(multiplier = voteMultiplier)
                 if (hasBuilderPass || mintSuccess) {
-                    Spacer(Modifier.weight(1f))
                     Icon(
                         Icons.Filled.CheckCircle,
                         contentDescription = "Owned",
@@ -245,6 +257,87 @@ private fun BuilderPassCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UserStatsCard(
+    skrId: String?,
+    skrStaked: Long,
+    isSeekerVerified: Boolean,
+    hackathonsVoted: Int,
+    memberSince: String?,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Member", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (memberSince != null) {
+                    Text("Since $memberSince", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem(label = "Seeker ID", value = skrId ?: "—")
+                StatItem(label = "Staked SKR", value = "%,d".format(skrStaked))
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem(label = "Hackathons Voted", value = hackathonsVoted.toString())
+                StatItem(
+                    label = "Genesis Holder",
+                    value = if (isSeekerVerified) "Yes" else "No",
+                    valueColor = if (isSeekerVerified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatItem(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = valueColor)
+    }
+}
+
+@Composable
+private fun VotePowerChip(multiplier: Double) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF1A1A2A).copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, Color(0xFF534AB7)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(Icons.Filled.Bolt, null, tint = Color(0xFFAFA9EC), modifier = Modifier.size(14.dp))
+            Text(
+                "%.1fx votes".format(multiplier),
+                color = Color(0xFFAFA9EC),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }

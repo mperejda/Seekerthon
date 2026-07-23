@@ -16,6 +16,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import retrofit2.HttpException
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 data class HackathonListUiState(
@@ -25,6 +27,12 @@ data class HackathonListUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasBuilderPass: Boolean = false,
+    val voteMultiplier: Double = 1.0,
+    val skrId: String? = null,
+    val skrStaked: Long = 0L,
+    val isSeekerVerified: Boolean = false,
+    val hackathonsVoted: Int = 0,
+    val memberSince: String? = null,
     val builderPassAvailable: Boolean = true,
     val builderPassUnavailableMessage: String? = null,
     val isMinting: Boolean = false,
@@ -78,6 +86,12 @@ class HackathonListViewModel @Inject constructor(
                     visibleHackathons = hackathons.filterFor(_state.value.selectedList),
                     selectedList = _state.value.selectedList,
                     hasBuilderPass = me?.has_builder_pass ?: false,
+                    voteMultiplier = me?.vote_multiplier ?: 1.0,
+                    skrId = me?.skr_id,
+                    skrStaked = me?.skr_staked ?: 0L,
+                    isSeekerVerified = me?.is_seeker_verified ?: false,
+                    hackathonsVoted = me?.hackathons_voted ?: 0,
+                    memberSince = me?.created_at?.let { formatMemberSince(it) },
                     builderPassAvailable = builderPassStatus?.available ?: true,
                     builderPassUnavailableMessage = builderPassStatus?.message?.takeIf { it.isNotBlank() },
                 )
@@ -106,6 +120,12 @@ class HackathonListViewModel @Inject constructor(
                     hackathons = hackathons,
                     visibleHackathons = hackathons.filterFor(_state.value.selectedList),
                     hasBuilderPass = me?.has_builder_pass ?: _state.value.hasBuilderPass,
+                    voteMultiplier = me?.vote_multiplier ?: _state.value.voteMultiplier,
+                    skrId = me?.skr_id ?: _state.value.skrId,
+                    skrStaked = me?.skr_staked ?: _state.value.skrStaked,
+                    isSeekerVerified = me?.is_seeker_verified ?: _state.value.isSeekerVerified,
+                    hackathonsVoted = me?.hackathons_voted ?: _state.value.hackathonsVoted,
+                    memberSince = me?.created_at?.let { formatMemberSince(it) } ?: _state.value.memberSince,
                     builderPassAvailable = builderPassStatus?.available ?: _state.value.builderPassAvailable,
                     builderPassUnavailableMessage = builderPassStatus?.message
                         ?.takeIf { it.isNotBlank() }
@@ -157,6 +177,11 @@ class HackathonListViewModel @Inject constructor(
 
     fun dismissError() { _state.value = _state.value.copy(error = null) }
     fun dismissMintSuccess() { _state.value = _state.value.copy(mintSuccess = false) }
+
+    private fun formatMemberSince(isoTimestamp: String): String = try {
+        val instant = Instant.parse(isoTimestamp)
+        DateTimeFormatter.ofPattern("MMM yyyy").withZone(ZoneId.systemDefault()).format(instant)
+    } catch (_: Exception) { "" }
 
     private fun List<Hackathon>.filterFor(filter: HackathonListFilter): List<Hackathon> {
         val now = Instant.now()
