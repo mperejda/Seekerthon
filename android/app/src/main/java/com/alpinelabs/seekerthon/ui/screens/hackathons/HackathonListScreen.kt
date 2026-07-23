@@ -39,6 +39,7 @@ fun HackathonListScreen(
     onHackathonClick: (String, Boolean) -> Unit,
     onSignOut: () -> Unit,
     onCreateHackathon: () -> Unit,
+    onActivityClick: () -> Unit = {},
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -155,8 +156,10 @@ fun HackathonListScreen(
                             isSeekerVerified = state.isSeekerVerified,
                             votesCast = state.votesCast,
                             hackathonsVoted = state.hackathonsVoted,
+                            supportNftsMinted = state.supportNftsMinted,
                             memberSince = state.memberSince,
                             voteMultiplier = state.voteMultiplier,
+                            onClick = onActivityClick,
                         )
                     }
 
@@ -274,11 +277,15 @@ private fun UserStatsCard(
     isSeekerVerified: Boolean,
     votesCast: Int,
     hackathonsVoted: Int,
+    supportNftsMinted: Int,
     memberSince: String?,
     voteMultiplier: Double,
+    onClick: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
@@ -315,6 +322,7 @@ private fun UserStatsCard(
                     value = if (isSeekerVerified) "Yes" else "No",
                     valueColor = if (isSeekerVerified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                StatItem(label = "Support NFTs", value = supportNftsMinted.toString(), textAlign = TextAlign.End)
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

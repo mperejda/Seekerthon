@@ -18,6 +18,7 @@ data class UserDto(
     val skr_id: String? = null,
     val votes_cast: Int = 0,
     val hackathons_voted: Int = 0,
+    val support_nfts_minted: Int = 0,
     val skr_staked_rank: Int? = null,
     val skr_staked_percentile: Int? = null,
     val created_at: String,
@@ -106,6 +107,10 @@ data class VoteResponseDto(
     val tx_signature: String,
 )
 
+data class ActivityVotedProjectDto(val project_id: String, val project_name: String, val hackathon_title: String)
+data class ActivitySupportNftDto(val project_id: String, val project_name: String, val hackathon_title: String, val asset_id: String? = null)
+data class UserActivityDto(val voted_projects: List<ActivityVotedProjectDto>, val support_nfts: List<ActivitySupportNftDto>)
+
 data class SupportNftPrepareRequestDto(val project_id: String)
 data class SupportNftPrepareResponseDto(
     val transaction_b64: String,
@@ -129,6 +134,9 @@ interface SeekerApi {
 
     @GET("users/me")
     suspend fun getMe(): UserDto
+
+    @GET("users/me/activity")
+    suspend fun getMyActivity(): UserActivityDto
 
     @GET("hackathons/")
     suspend fun listHackathons(@Query("status") status: String? = null): List<HackathonDto>

@@ -43,6 +43,7 @@ class UserResponse(UserBase):
     skr_id: Optional[str] = None
     votes_cast: int = 0
     hackathons_voted: int = 0
+    support_nfts_minted: int = 0
     skr_staked_rank: Optional[int] = None
     skr_staked_percentile: Optional[int] = None
     created_at: datetime
@@ -75,6 +76,24 @@ class AuthToken(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ActivityVotedProject(BaseModel):
+    project_id: str
+    project_name: str
+    hackathon_title: str
+
+
+class ActivitySupportNft(BaseModel):
+    project_id: str
+    project_name: str
+    hackathon_title: str
+    asset_id: Optional[str] = None
+
+
+class UserActivityResponse(BaseModel):
+    voted_projects: List[ActivityVotedProject]
+    support_nfts: List[ActivitySupportNft]
 
 
 # ── Hackathons ──────────────────────────────────────────────────────────────

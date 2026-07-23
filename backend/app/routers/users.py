@@ -14,7 +14,7 @@ from nacl.exceptions import BadSignatureError
 from app.config import get_settings
 from app.db import get_supabase_admin
 from app.middleware.auth import SESSION_COOKIE_NAME
-from app.models.schemas import UserCreate, UserResponse, WalletChallenge, AuthToken
+from app.models.schemas import UserCreate, UserResponse, WalletChallenge, AuthToken, UserActivityResponse, ActivityVotedProject, ActivitySupportNft
 
 
 class DeviceTokenRequest(BaseModel):
@@ -204,6 +204,9 @@ async def get_me(request: Request):
         projects_res = db.table("projects").select("hackathon_id").in_("id", project_ids).execute()
         hackathons_voted = len({row["hackathon_id"] for row in (projects_res.data or [])})
 
+    support_res = db.table("support_nft_mints").select("id", count="exact").eq("user_id", user_id).eq("status", "confirmed").execute()
+    support_nfts_minted = support_res.count or 0
+
     skr_staked_rank = None
     skr_staked_percentile = None
     if skr_staked > 0:
@@ -215,7 +218,49 @@ async def get_me(request: Request):
         if total_stakers > 0:
             skr_staked_percentile = max(1, math.ceil(count_above / total_stakers * 100))
 
-    return UserResponse(**result.data[0], votes_cast=votes_cast, hackathons_voted=hackathons_voted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
+    return UserResponse(**result.data[0], votes_cast=votes_cast, hackathons_voted=hackathons_voted, support_nfts_minted=support_nfts_minted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
+
+
+@router.get("/me/activity", response_model=UserActivityResponse)
+async def get_my_activity(request: Request):
+    db = get_supabase_admin()
+    user_id = request.state.user_id
+
+    # Voted projects
+    votes_res = db.table("votes").select("project_id").eq("voter_id", user_id).execute()
+    vote_project_ids = [row["project_id"] for row in (votes_res.data or [])]
+    voted_projects = []
+    if vote_project_ids:
+        proj_res = db.table("projects").select("id, name, hackathon_id").in_("id", vote_project_ids).execute()
+        hack_ids = list({p["hackathon_id"] for p in (proj_res.data or [])})
+        hack_res = db.table("hackathons").select("id, title").in_("id", hack_ids).execute()
+        hack_map = {h["id"]: h["title"] for h in (hack_res.data or [])}
+        for p in (proj_res.data or []):
+            voted_projects.append(ActivityVotedProject(
+                project_id=p["id"],
+                project_name=p["name"],
+                hackathon_title=hack_map.get(p["hackathon_id"], ""),
+            ))
+
+    # Support NFTs minted
+    support_res = db.table("support_nft_mints").select("project_id, hackathon_id, asset_id").eq("user_id", user_id).eq("status", "confirmed").execute()
+    support_project_ids = list({row["project_id"] for row in (support_res.data or [])})
+    support_nfts = []
+    if support_project_ids:
+        s_proj_res = db.table("projects").select("id, name").in_("id", support_project_ids).execute()
+        s_proj_map = {p["id"]: p["name"] for p in (s_proj_res.data or [])}
+        s_hack_ids = list({row["hackathon_id"] for row in (support_res.data or []) if row.get("hackathon_id")})
+        s_hack_res = db.table("hackathons").select("id, title").in_("id", s_hack_ids).execute()
+        s_hack_map = {h["id"]: h["title"] for h in (s_hack_res.data or [])}
+        for row in (support_res.data or []):
+            support_nfts.append(ActivitySupportNft(
+                project_id=row["project_id"],
+                project_name=s_proj_map.get(row["project_id"], ""),
+                hackathon_title=s_hack_map.get(row.get("hackathon_id", ""), ""),
+                asset_id=row.get("asset_id"),
+            ))
+
+    return UserActivityResponse(voted_projects=voted_projects, support_nfts=support_nfts)
 
 
 

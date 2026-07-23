@@ -35,6 +35,7 @@ data class HackathonListUiState(
     val isSeekerVerified: Boolean = false,
     val votesCast: Int = 0,
     val hackathonsVoted: Int = 0,
+    val supportNftsMinted: Int = 0,
     val memberSince: String? = null,
     val builderPassAvailable: Boolean = true,
     val builderPassUnavailableMessage: String? = null,
@@ -97,6 +98,7 @@ class HackathonListViewModel @Inject constructor(
                     isSeekerVerified = me?.is_seeker_verified ?: false,
                     votesCast = me?.votes_cast ?: 0,
                     hackathonsVoted = me?.hackathons_voted ?: 0,
+                    supportNftsMinted = me?.support_nfts_minted ?: 0,
                     memberSince = me?.created_at?.let { formatMemberSince(it) },
                     builderPassAvailable = builderPassStatus?.available ?: true,
                     builderPassUnavailableMessage = builderPassStatus?.message?.takeIf { it.isNotBlank() },
@@ -134,6 +136,7 @@ class HackathonListViewModel @Inject constructor(
                     isSeekerVerified = me?.is_seeker_verified ?: _state.value.isSeekerVerified,
                     votesCast = me?.votes_cast ?: _state.value.votesCast,
                     hackathonsVoted = me?.hackathons_voted ?: _state.value.hackathonsVoted,
+                    supportNftsMinted = me?.support_nfts_minted ?: _state.value.supportNftsMinted,
                     memberSince = me?.created_at?.let { formatMemberSince(it) } ?: _state.value.memberSince,
                     builderPassAvailable = builderPassStatus?.available ?: _state.value.builderPassAvailable,
                     builderPassUnavailableMessage = builderPassStatus?.message
