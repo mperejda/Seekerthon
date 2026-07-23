@@ -115,6 +115,8 @@ data class SupportNftPrepareRequestDto(val project_id: String)
 data class SupportNftPrepareResponseDto(
     val transaction_b64: String,
     val amount_display: String,
+    val treasury_amount_display: String,
+    val builder_amount_display: String,
     val project_name: String,
     val project_id: String,
 )
