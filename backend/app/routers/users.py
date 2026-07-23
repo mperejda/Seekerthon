@@ -2,6 +2,7 @@ import asyncio
 import base58
 import logging
 import math
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -16,6 +17,8 @@ from app.config import get_settings
 from app.db import get_supabase_admin
 from app.middleware.auth import SESSION_COOKIE_NAME
 from app.models.schemas import UserCreate, UserResponse, WalletChallenge, AuthToken, UserActivityResponse, ActivityVotedProject, ActivitySupportNft
+
+_SOLANA_PUBKEY_RE = re.compile(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')
 
 
 class DeviceTokenRequest(BaseModel):
@@ -39,6 +42,8 @@ def _parse_dt(s: str) -> datetime:
 @router.get("/challenge", response_model=WalletChallenge)
 async def get_challenge(wallet_address: str):
     """Issue a sign challenge for wallet-based login."""
+    if not _SOLANA_PUBKEY_RE.match(wallet_address):
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
     challenge = f"seeker-hackathon-login:{wallet_address}:{secrets.token_hex(16)}"
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     db = get_supabase_admin()
