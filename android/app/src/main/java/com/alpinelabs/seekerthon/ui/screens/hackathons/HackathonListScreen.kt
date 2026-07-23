@@ -288,8 +288,6 @@ private fun UserStatsCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Member", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Spacer(Modifier.weight(1f))
-                VotePowerChip(multiplier = voteMultiplier)
                 if (memberSince != null) {
                     Text("Since $memberSince", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -311,6 +309,10 @@ private fun UserStatsCard(
                     valueColor = if (isSeekerVerified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.End,
                 )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                VotePowerChip(multiplier = voteMultiplier)
             }
         }
     }
