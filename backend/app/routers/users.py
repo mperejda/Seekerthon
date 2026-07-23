@@ -212,6 +212,7 @@ async def get_me(request: Request):
         "vote_multiplier": vote_multiplier,
         "is_seeker_verified": is_seeker_verified,
         "has_builder_pass": has_builder_pass,
+        "last_seen_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
         skr_id = await get_skr_id(wallet)
