@@ -80,94 +80,96 @@ fun HackathonListScreen(
                     }
                 }
             }
-            else -> Column(modifier = Modifier.fillMaxSize()) {
-                PullToRefreshBox(
-                    isRefreshing = state.isRefreshing,
-                    onRefresh = { viewModel.refresh() },
-                    modifier = Modifier.weight(1f),
+            else -> PullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        item {
-                            HackathonListTabs(
-                                selected = state.selectedList,
-                                onSelected = viewModel::selectList,
-                            )
-                        }
+                    item {
+                        HackathonListTabs(
+                            selected = state.selectedList,
+                            onSelected = viewModel::selectList,
+                        )
+                    }
 
-                        if (state.visibleHackathons.isEmpty()) {
-                            item {
-                                Box(
-                                    Modifier
-                                        .fillParentMaxSize()
-                                        .padding(bottom = 80.dp),
-                                    contentAlignment = Alignment.Center,
+                    if (state.visibleHackathons.isEmpty()) {
+                        item {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.Inbox,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(48.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Text(
-                                            if (state.selectedList == HackathonListFilter.Past)
-                                                "No completed hackathons yet"
-                                            else
-                                                "No active hackathons",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        if (state.selectedList == HackathonListFilter.Active) {
-                                            Spacer(Modifier.height(8.dp))
-                                            Button(onClick = onCreateHackathon) {
-                                                Text("Create a Hackathon")
-                                            }
+                                    Icon(
+                                        Icons.Outlined.Inbox,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        if (state.selectedList == HackathonListFilter.Past)
+                                            "No completed hackathons yet"
+                                        else
+                                            "No active hackathons",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (state.selectedList == HackathonListFilter.Active) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Button(onClick = onCreateHackathon) {
+                                            Text("Create a Hackathon")
                                         }
                                     }
                                 }
                             }
-                        } else {
-                            items(state.visibleHackathons) { hackathon ->
-                                HackathonCard(
-                                    hackathon = hackathon,
-                                    selectedList = state.selectedList,
-                                    onClick = {
-                                        onHackathonClick(
-                                            hackathon.id,
-                                            state.selectedList == HackathonListFilter.Past,
-                                        )
-                                    },
-                                )
-                            }
+                        }
+                    } else {
+                        items(state.visibleHackathons) { hackathon ->
+                            HackathonCard(
+                                hackathon = hackathon,
+                                selectedList = state.selectedList,
+                                onClick = {
+                                    onHackathonClick(
+                                        hackathon.id,
+                                        state.selectedList == HackathonListFilter.Past,
+                                    )
+                                },
+                            )
                         }
                     }
-                }
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    UserStatsCard(
-                        skrId = state.skrId,
-                        skrStaked = state.skrStaked,
-                        skrStakedRank = state.skrStakedRank,
-                        skrStakedPercentile = state.skrStakedPercentile,
-                        isSeekerVerified = state.isSeekerVerified,
-                        votesCast = state.votesCast,
-                        hackathonsVoted = state.hackathonsVoted,
-                        memberSince = state.memberSince,
-                        voteMultiplier = state.voteMultiplier,
-                    )
-                    BuilderPassCard(
-                        hasBuilderPass = state.hasBuilderPass,
-                        builderPassAvailable = state.builderPassAvailable,
-                        builderPassUnavailableMessage = state.builderPassUnavailableMessage,
-                        isMinting = state.isMinting,
-                        mintSuccess = state.mintSuccess,
-                        onMint = { viewModel.mintBuilderPass(sender) },
-                    )
+
+                    item {
+                        UserStatsCard(
+                            skrId = state.skrId,
+                            skrStaked = state.skrStaked,
+                            skrStakedRank = state.skrStakedRank,
+                            skrStakedPercentile = state.skrStakedPercentile,
+                            isSeekerVerified = state.isSeekerVerified,
+                            votesCast = state.votesCast,
+                            hackathonsVoted = state.hackathonsVoted,
+                            memberSince = state.memberSince,
+                            voteMultiplier = state.voteMultiplier,
+                        )
+                    }
+
+                    item {
+                        BuilderPassCard(
+                            hasBuilderPass = state.hasBuilderPass,
+                            builderPassAvailable = state.builderPassAvailable,
+                            builderPassUnavailableMessage = state.builderPassUnavailableMessage,
+                            isMinting = state.isMinting,
+                            mintSuccess = state.mintSuccess,
+                            onMint = { viewModel.mintBuilderPass(sender) },
+                        )
+                    }
                 }
             }
         }
