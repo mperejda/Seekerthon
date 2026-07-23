@@ -132,7 +132,7 @@ async def login(body: UserCreate, response: Response):
     )
 
     if is_seeker_verified is _FAILED:
-        raise HTTPException(status_code=503, detail="The app is busy right now and could not verify your Seeker Genesis Token. Please try again in a moment.")
+        raise HTTPException(status_code=503, detail="Seeker Genesis Token verification is temporarily unavailable due to high demand. Please try again in a moment.")
     if not is_seeker_verified:
         raise HTTPException(status_code=403, detail="A Seeker Genesis Token is required to sign in.")
 
