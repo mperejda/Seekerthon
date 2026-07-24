@@ -2,7 +2,6 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
 from app.routers import hackathons, mint, newsletter, projects, registrations, support_nft, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
@@ -49,36 +48,13 @@ async def health():
     return {"status": "ok"}
 
 
-_PUBLIC_CORS = CORSMiddleware(
-    api,
-    allow_origins=_settings.cors_origins,
-    allow_credentials=False,
-    allow_methods=["POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
-)
-_RESTRICTED_CORS = CORSMiddleware(
+app = CORSMiddleware(
     api,
     allow_origins=_settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
-
-_PUBLIC_PATHS = ("/api/v1/newsletter",)
-
-
-class _CORSDispatcher:
-    def __init__(self, public: ASGIApp, restricted: ASGIApp) -> None:
-        self._public = public
-        self._restricted = restricted
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        path = scope.get("path", "")
-        handler = self._public if any(path.startswith(p) for p in _PUBLIC_PATHS) else self._restricted
-        await handler(scope, receive, send)
-
-
-app = _CORSDispatcher(_PUBLIC_CORS, _RESTRICTED_CORS)
 
 
 if __name__ == "__main__":
