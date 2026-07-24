@@ -301,11 +301,15 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
             rpc_url=MAINNET_RPC_URL,
         )
         accounts = stake_resp.get("result") or []
-        if accounts:
-            data = base64.b64decode(accounts[0]["account"]["data"][0])
+        _log.info("Staking accounts found for %s: %d", wallet_address, len(accounts))
+        for acct in accounts:
+            data = base64.b64decode(acct["account"]["data"][0])
             if len(data) >= _STAKING_AMOUNT_OFFSET + 8:
-                staked_raw = struct.unpack_from("<Q", data, _STAKING_AMOUNT_OFFSET)[0]
-                _log.info("Staked SKR for %s: %d raw (%s whole)", wallet_address, staked_raw, staked_raw // divisor)
+                amount = struct.unpack_from("<Q", data, _STAKING_AMOUNT_OFFSET)[0]
+                _log.info("Staking account raw amount: %d (%s whole)", amount, amount // divisor)
+                staked_raw += amount
+        if staked_raw:
+            _log.info("Total staked SKR for %s: %d raw (%s whole)", wallet_address, staked_raw, staked_raw // divisor)
     except Exception as exc:
         _log.warning("Staked SKR lookup failed for %s: %s", wallet_address, exc)
 
