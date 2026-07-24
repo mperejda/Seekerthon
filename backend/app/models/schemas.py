@@ -46,6 +46,7 @@ class UserResponse(UserBase):
     support_nfts_minted: int = 0
     skr_staked_rank: Optional[int] = None
     skr_staked_percentile: Optional[int] = None
+    active_days: int = 0
     created_at: datetime
 
     class Config:

@@ -206,14 +206,23 @@ async def get_me(request: Request):
         has_builder_pass = existing.data.get("has_builder_pass", False)
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)
 
+    now = datetime.now(timezone.utc)
+    prev_seen = existing.data.get("last_seen_at")
+    new_day = (
+        not prev_seen
+        or _parse_dt(prev_seen).date() < now.date()
+    )
+
     update_data: dict = {
         "skr_balance": skr_balance,
         "skr_staked": skr_staked,
         "vote_multiplier": vote_multiplier,
         "is_seeker_verified": is_seeker_verified,
         "has_builder_pass": has_builder_pass,
-        "last_seen_at": datetime.now(timezone.utc).isoformat(),
+        "last_seen_at": now.isoformat(),
     }
+    if new_day:
+        update_data["active_days"] = (existing.data.get("active_days") or 0) + 1
     try:
         skr_id = await get_skr_id(wallet)
         update_data["skr_id"] = skr_id
