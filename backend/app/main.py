@@ -51,7 +51,7 @@ async def health():
 
 _PUBLIC_CORS = CORSMiddleware(
     api,
-    allow_origins=["https://seekerthon.com", "https://app.seekerthon.com"],
+    allow_origins=_settings.cors_origins,
     allow_credentials=False,
     allow_methods=["POST", "OPTIONS"],
     allow_headers=["Content-Type"],
