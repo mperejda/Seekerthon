@@ -260,6 +260,34 @@
     </div>
   </section>
 
+  <!-- Newsletter -->
+  <section class="py-24 px-6 border-t border-white/5">
+    <div class="max-w-xl mx-auto text-center">
+      <h2 class="text-3xl font-bold mb-4">Stay in the loop</h2>
+      <p class="text-gray-400 mb-8">
+        Get updates on upcoming hackathons, voting windows, and announcements.
+      </p>
+      <form id="signup-form" class="flex flex-col sm:flex-row gap-3">
+        <input
+          id="signup-email"
+          type="email"
+          placeholder="your@email.com"
+          required
+          class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-colors"
+        />
+        <button
+          type="submit"
+          id="signup-btn"
+          class="bg-purple-600 hover:bg-purple-500 transition-colors text-white font-semibold px-6 py-3 rounded-lg text-sm whitespace-nowrap"
+        >
+          Get updates
+        </button>
+      </form>
+      <p id="signup-success" class="hidden mt-4 text-green-400 text-sm">You're in — we'll be in touch.</p>
+      <p id="signup-error" class="hidden mt-4 text-red-400 text-sm"></p>
+    </div>
+  </section>
+
   <!-- CTA -->
   <section class="py-24 px-6">
     <div class="max-w-2xl mx-auto text-center">
@@ -279,6 +307,44 @@
       </div>
     </div>
   </section>
+
+  <script>
+    document.getElementById('signup-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const email = document.getElementById('signup-email').value;
+      const btn = document.getElementById('signup-btn');
+      const success = document.getElementById('signup-success');
+      const error = document.getElementById('signup-error');
+
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+      success.classList.add('hidden');
+      error.classList.add('hidden');
+
+      try {
+        const res = await fetch('https://seekerthon-ywwb-production.up.railway.app/api/v1/newsletter/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (res.ok) {
+          document.getElementById('signup-form').classList.add('hidden');
+          success.classList.remove('hidden');
+        } else {
+          const data = await res.json().catch(() => ({}));
+          error.textContent = data.detail || 'Something went wrong. Please try again.';
+          error.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = 'Get updates';
+        }
+      } catch {
+        error.textContent = 'Network error. Please try again.';
+        error.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Get updates';
+      }
+    });
+  </script>
 
   <!-- Footer -->
   <footer class="border-t border-white/5 py-8 px-6">

@@ -15,6 +15,7 @@ EXEMPT_PATHS = {
     "/api/v1/users/challenge",
     "/api/v1/users/login",
     "/api/v1/users/logout",
+    "/api/v1/newsletter/signup",
     "/docs",
     "/openapi.json",
 }
