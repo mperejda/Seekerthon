@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,6 +108,13 @@ fun CherryChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        webView?.context?.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://cherry.fun"))
+                        )
+                    }) {
+                        Icon(Icons.Outlined.OpenInBrowser, contentDescription = "Open Cherry")
+                    }
                     IconButton(onClick = {
                         webView?.reload() ?: viewModel.loadToken()
                     }) {

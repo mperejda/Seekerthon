@@ -164,6 +164,12 @@
           walletAddress: walletAddress,
           container: "#chat",
           theme: { mode: "dark", primaryColor: "#FF5BA8" },
+          layout: {
+            showHeader: true,
+            headerTitle: "Seekerthon Chat",
+            showMemberCount: true,
+            showInput: true
+          },
           signChallengeHandler: signWithNative
         });
         window.__cherryChat = chat;
