@@ -106,8 +106,12 @@ async def login(body: UserCreate, response: Response):
         raise HTTPException(status_code=400, detail="Malformed wallet address or signature")
 
     # Look up existing user so we can fall back to cached values if RPC fails.
-    existing = db.table("users").select("skr_balance,skr_staked,is_seeker_verified,has_builder_pass,skr_id").eq("wallet_address", body.wallet_address).maybe_single().execute()
-    cached = existing.data or {}
+    # Wrap in try/except: supabase-py raises on 406 when no row exists (new users).
+    try:
+        existing = db.table("users").select("skr_balance,skr_staked,is_seeker_verified,has_builder_pass,skr_id").eq("wallet_address", body.wallet_address).maybe_single().execute()
+        cached = existing.data or {}
+    except Exception:
+        cached = {}
 
     # Run all on-chain checks in parallel with a 5 s timeout each.
     # Falls back to cached DB values for returning users; 0/False for brand-new ones.
