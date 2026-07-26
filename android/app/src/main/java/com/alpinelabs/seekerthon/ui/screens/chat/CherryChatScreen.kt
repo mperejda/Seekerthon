@@ -116,7 +116,11 @@ fun CherryChatScreen(
                 modifier = Modifier.padding(padding),
             )
             state.token != null && state.walletAddress != null -> {
-                Box(modifier = Modifier.padding(padding)) {
+                Box(
+                    modifier = Modifier
+                        .padding(padding)
+                        .fillMaxSize(),
+                ) {
                     CherryChatWebView(
                         token = state.token!!,
                         walletAddress = state.walletAddress!!,
