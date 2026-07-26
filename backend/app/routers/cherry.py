@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,7 @@ from app.config import get_settings
 
 router = APIRouter()
 _settings = get_settings()
+log = logging.getLogger(__name__)
 
 CHERRY_APP_ID = "735413f4-d9a3-4b90-af2f-845ba3ea97cd"
 
@@ -23,21 +25,32 @@ async def create_cherry_embed_token(request: Request):
     wallet_address = getattr(request.state, "wallet_address", None)
     if not wallet_address:
         raise HTTPException(status_code=401, detail="Missing authenticated wallet")
-    if not _settings.cherry_app_secret:
+    app_secret = _settings.cherry_app_secret.strip()
+    if not app_secret:
         raise HTTPException(status_code=503, detail="Cherry chat is not configured")
 
     now = datetime.now(timezone.utc)
     issued_at = now - timedelta(seconds=60)
     expires_at = issued_at + timedelta(minutes=5)
+    jti = str(uuid4())
     token = jwt.encode(
         {
             "sub": wallet_address,
             "app_id": CHERRY_APP_ID,
             "iat": int(issued_at.timestamp()),
             "exp": int(expires_at.timestamp()),
-            "jti": str(uuid4()),
+            "jti": jti,
         },
-        _settings.cherry_app_secret,
+        app_secret,
         algorithm="HS256",
+    )
+    log.info(
+        "Minted Cherry embed token app_id=%s wallet=%s iat=%s exp=%s jti=%s secret_len=%s",
+        CHERRY_APP_ID,
+        wallet_address,
+        int(issued_at.timestamp()),
+        int(expires_at.timestamp()),
+        jti,
+        len(app_secret),
     )
     return CherryEmbedTokenResponse(token=token, wallet_address=wallet_address)
