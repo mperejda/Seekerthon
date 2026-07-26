@@ -41,11 +41,19 @@ USDC_DECIMALS = 6
 MAX_MULTIPLIER = _settings.max_vote_multiplier
 SKR_PER_STEP = _settings.skr_per_multiplier_step
 
-# SKR staking program — on-chain contract where SKR holders stake
+# SKR staking program — share-based vault (Anchor).
+# UserStake account (169 bytes): discriminator(8) + bump(1) + stake_config(32) + user(32)
+#   + guardian_pool(32) + shares(u128,16) + cost_basis(u128,16) + cumul_commission(u128,16)
+#   + unstaking_amount(u64,8) + unstake_timestamp(i64,8)
+# Actual SKR = shares * share_price / STAKING_SHARE_PRICE_SCALE
+# StakeConfig account (193 bytes): holds the global share_price at offset 137.
 SKR_STAKING_PROGRAM = "SKRskrmtL83pcL4YqLWt6iPefDqwXQWHSw9S9vz94BZ"
-_STAKING_ACCT_SIZE = 169    # per-user staking account size in bytes
-_STAKING_WALLET_OFFSET = 41 # user wallet pubkey starts at byte 41
-_STAKING_AMOUNT_OFFSET = 105 # staked u64 (LE, 6 decimals) starts at byte 105
+_STAKE_CONFIG_ADDR  = "4HQy82s9CHTv1GsYKnANHMiHfhcqesYkK6sB3RDSYyqw"
+_STAKING_ACCT_SIZE       = 169
+_STAKING_WALLET_OFFSET   = 41   # user pubkey at byte 41
+_STAKING_SHARES_OFFSET   = 105  # shares u128 at byte 105 (16 bytes)
+_STAKE_CONFIG_PRICE_OFFSET = 137 # share_price u128 in StakeConfig account
+STAKING_SHARE_PRICE_SCALE  = 10 ** 9  # share_price is scaled by 1e9
 
 # SPL Token program
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -280,11 +288,27 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
 
     divisor = 10 ** decimals
 
-    # --- Staked balance: getProgramAccounts on SKR staking program filtered by wallet ---
-    # Per-user staking accounts are 169 bytes; wallet pubkey lives at byte offset 41;
-    # staked u64 (LE) lives at byte offset 105.
+    # --- Staked balance: shares * share_price / STAKING_SHARE_PRICE_SCALE ---
+    # The staking program is share-based. UserStake stores shares (u128); the global
+    # StakeConfig holds the current share_price (u128, scaled by 1e9). As rewards accrue
+    # the share price rises, so token_value = shares * share_price / 1e9.
     staked_raw = 0
     try:
+        # Fetch current share price from the singleton StakeConfig account
+        config_resp = await _rpc_post(
+            "getAccountInfo",
+            [_STAKE_CONFIG_ADDR, {"encoding": "base64", "commitment": "confirmed"}],
+            rpc_url=MAINNET_RPC_URL,
+        )
+        config_data = base64.b64decode(
+            (config_resp.get("result", {}).get("value") or {}).get("data", [""])[0]
+        )
+        share_price = int.from_bytes(
+            config_data[_STAKE_CONFIG_PRICE_OFFSET:_STAKE_CONFIG_PRICE_OFFSET + 16], "little"
+        )
+        _log.info("SKR share_price: %d (scale 1e9 = %.6f SKR/share)", share_price, share_price / STAKING_SHARE_PRICE_SCALE)
+
+        # Fetch user staking accounts
         stake_resp = await _rpc_post(
             "getProgramAccounts",
             [
@@ -304,12 +328,13 @@ async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
         _log.info("Staking accounts found for %s: %d", wallet_address, len(accounts))
         for acct in accounts:
             data = base64.b64decode(acct["account"]["data"][0])
-            if len(data) >= _STAKING_AMOUNT_OFFSET + 8:
-                amount = struct.unpack_from("<Q", data, _STAKING_AMOUNT_OFFSET)[0]
-                _log.info("Staking account raw amount: %d (%s whole)", amount, amount // divisor)
-                staked_raw += amount
+            if len(data) >= _STAKING_SHARES_OFFSET + 16:
+                shares = int.from_bytes(data[_STAKING_SHARES_OFFSET:_STAKING_SHARES_OFFSET + 16], "little")
+                token_raw = shares * share_price // STAKING_SHARE_PRICE_SCALE
+                _log.info("Shares: %d, token_raw: %d (%.6f SKR)", shares, token_raw, token_raw / divisor)
+                staked_raw += token_raw
         if staked_raw:
-            _log.info("Total staked SKR for %s: %d raw (%s whole)", wallet_address, staked_raw, staked_raw // divisor)
+            _log.info("Total staked SKR for %s: %d raw (%.6f whole)", wallet_address, staked_raw, staked_raw / divisor)
     except Exception as exc:
         _log.warning("Staked SKR lookup failed for %s: %s", wallet_address, exc)
 
