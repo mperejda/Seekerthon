@@ -10,12 +10,21 @@
     #chat {
       width: 100%;
       height: 100%;
+      min-height: 100vh;
       margin: 0;
       padding: 0;
       background: #0a0a12;
       color: #ffffff;
       overflow: hidden;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    iframe {
+      display: block !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 100vh !important;
+      background: #14141f;
     }
 
     .status {
@@ -48,15 +57,65 @@
       const token = params.get("token");
       const walletAddress = params.get("walletAddress");
       const embedUrl = params.get("embedUrl") || "https://embed.cherry.fun";
+      const viewportHeight = Number(params.get("viewportHeight") || "0");
       const container = document.getElementById("chat");
       const pendingSigns = new Map();
       let readyTimer = null;
+
+      function viewportPx() {
+        const height = Math.max(
+          viewportHeight,
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0,
+          window.screen && window.screen.height ? window.screen.height : 0,
+          600
+        );
+        return Math.round(height) + "px";
+      }
+
+      function forceViewportHeight() {
+        const height = viewportPx();
+        document.documentElement.style.height = height;
+        document.documentElement.style.minHeight = height;
+        document.body.style.height = height;
+        document.body.style.minHeight = height;
+        container.style.height = height;
+        container.style.minHeight = height;
+        const iframe = container.querySelector("iframe");
+        if (iframe) {
+          iframe.style.height = height;
+          iframe.style.minHeight = height;
+        }
+      }
+
+      window.__cherryForceHeight = function (heightPx) {
+        const height = Math.max(
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0,
+          window.screen && window.screen.height ? window.screen.height : 0,
+          Number(heightPx) || 0,
+          600
+        );
+        document.documentElement.style.height = Math.round(height) + "px";
+        document.documentElement.style.minHeight = Math.round(height) + "px";
+        document.body.style.height = Math.round(height) + "px";
+        document.body.style.minHeight = Math.round(height) + "px";
+        container.style.height = Math.round(height) + "px";
+        container.style.minHeight = Math.round(height) + "px";
+        const iframe = container.querySelector("iframe");
+        if (iframe) {
+          iframe.style.height = Math.round(height) + "px";
+          iframe.style.minHeight = Math.round(height) + "px";
+        }
+        reportDom("forced-height");
+      };
 
       function showStatus(message) {
         if (readyTimer) {
           clearTimeout(readyTimer);
           readyTimer = null;
         }
+        forceViewportHeight();
         container.innerHTML = "";
         const status = document.createElement("div");
         status.className = "status";
@@ -141,12 +200,32 @@
         window.CherryNative.onCherryEvent(JSON.stringify({ event: event, data: data }));
       }
 
+      function reportDom(label) {
+        forceViewportHeight();
+        const iframe = container.querySelector("iframe");
+        const rect = iframe ? iframe.getBoundingClientRect() : null;
+        emitNative("dom", {
+          label: label,
+          childCount: container.children.length,
+          body: { width: document.body.clientWidth, height: document.body.clientHeight },
+          chat: { width: container.clientWidth, height: container.clientHeight },
+          iframe: rect ? {
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            src: iframe.src
+          } : null
+        });
+      }
+
       if (!appId || !roomId || !token || !walletAddress) {
         showStatus("Cherry chat is not configured for this build.");
         return;
       }
 
       function mountCherry() {
+        forceViewportHeight();
         emitNative("mounting", { appId: appId, roomId: roomId, walletAddress: walletAddress });
         const sdk = window.CherryEmbedSDK;
         if (!sdk || !sdk.CherryEmbed) {
@@ -173,14 +252,20 @@
           signChallengeHandler: signWithNative
         });
         window.__cherryChat = chat;
+        forceViewportHeight();
         chat.on("ready", function () {
           if (readyTimer) {
             clearTimeout(readyTimer);
             readyTimer = null;
           }
           emitNative("ready", null);
+          reportDom("ready");
         });
-        chat.on("authStateChange", function (ok) { emitNative("authStateChange", ok); });
+        chat.on("authStateChange", function (ok) {
+          emitNative("authStateChange", ok);
+          reportDom("auth");
+          setTimeout(function () { reportDom("auth+2s"); }, 2000);
+        });
         chat.on("preview", function (state) { emitNative("preview", state); });
         chat.on("walletConnectRequested", function () {
           emitNative("walletConnectRequested", null);

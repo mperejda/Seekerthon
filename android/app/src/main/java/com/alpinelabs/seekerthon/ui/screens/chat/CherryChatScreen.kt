@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.ConsoleMessage
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,7 +35,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -51,9 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,6 +65,7 @@ private const val CHAT_ASSET_URL = "https://appassets.androidplatform.net/assets
 private const val CHERRY_APP_ID = "735413f4-d9a3-4b90-af2f-845ba3ea97cd"
 private const val CHERRY_ROOM_ID = "e5150eb2-f0e2-4bd3-b092-b37053bd5594"
 private const val CHERRY_EMBED_URL = "https://embed.cherry.fun"
+private const val CHERRY_LOG_TAG = "SeekerCherry"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,7 +79,6 @@ fun CherryChatScreen(
     val scope = rememberCoroutineScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
-    var debugStatus by remember { mutableStateOf("Token: waiting") }
 
     if (state.sessionExpired) {
         LaunchedEffect(Unit) { onSessionExpired() }
@@ -132,9 +129,6 @@ fun CherryChatScreen(
                 modifier = Modifier.padding(padding),
             )
             state.token != null && state.walletAddress != null -> {
-                LaunchedEffect(state.token, state.walletAddress) {
-                    debugStatus = "Token ok: ${state.walletAddress!!.take(4)}...${state.walletAddress!!.takeLast(4)}"
-                }
                 Box(
                     modifier = Modifier
                         .padding(padding)
@@ -146,11 +140,10 @@ fun CherryChatScreen(
                         sender = sender,
                         viewModel = viewModel,
                         scope = scope,
-                        onDebug = { debugStatus = it },
+                        onDebug = {},
                         onWebViewCreated = { webView = it },
                         onCanGoBackChanged = { canGoBack = it },
                     )
-                    DebugStrip(debugStatus)
                 }
             }
         }
@@ -246,6 +239,7 @@ private fun CherryChatWebView(
                                 webError = message
                                 onDebug("Console: $message")
                             }
+                            Log.d(CHERRY_LOG_TAG, "console ${consoleMessage.messageLevel()}: $message")
                             return true
                         }
                     }
@@ -276,12 +270,14 @@ private fun CherryChatWebView(
                             isLoading = true
                             webError = null
                             onDebug("WebView loading host page")
+                            Log.d(CHERRY_LOG_TAG, "page started $url")
                             onCanGoBackChanged(view.canGoBack())
                         }
 
                         override fun onPageFinished(view: WebView, url: String?) {
                             isLoading = false
                             onDebug("WebView host loaded")
+                            Log.d(CHERRY_LOG_TAG, "page finished $url")
                             onCanGoBackChanged(view.canGoBack())
                         }
 
@@ -294,6 +290,7 @@ private fun CherryChatWebView(
                                 val message = "WebView error: ${error.description}"
                                 webError = message
                                 onDebug(message)
+                                Log.e(CHERRY_LOG_TAG, message)
                             }
                         }
 
@@ -305,6 +302,7 @@ private fun CherryChatWebView(
                             val url = request.url.toString()
                             if (url.contains("cherry", ignoreCase = true)) {
                                 onDebug("HTTP ${errorResponse.statusCode}: ${request.url.host}")
+                                Log.w(CHERRY_LOG_TAG, "HTTP ${errorResponse.statusCode}: $url")
                             }
                         }
                     }
@@ -313,34 +311,15 @@ private fun CherryChatWebView(
                     onWebViewCreated(this)
                 }
             },
+            update = { view ->
+                view.evaluateJavascript("if (window.__cherryForceHeight) window.__cherryForceHeight(0);", null)
+            },
         )
 
         if (isLoading) {
             LoadingState()
         } else if (webError != null) {
             WebErrorOverlay(message = webError!!)
-        }
-    }
-}
-
-@Composable
-private fun DebugStrip(message: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            tonalElevation = 2.dp,
-        ) {
-            Text(
-                text = message,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-            )
         }
     }
 }
@@ -367,14 +346,17 @@ private class CherryNativeBridge(
     @JavascriptInterface
     fun signChallenge(id: String, messageBase64: String) {
         onDebug("Signing challenge")
+        Log.d(CHERRY_LOG_TAG, "Signing challenge")
         scope.launch {
             viewModel.signChallenge(sender, messageBase64)
                 .onSuccess { signatureBase64 ->
                     onDebug("Signature returned")
+                    Log.d(CHERRY_LOG_TAG, "Signature returned")
                     evaluate("__cherryResolveSign(${quote(id)}, ${quote(signatureBase64)});")
                 }
                 .onFailure { error ->
                     onDebug(error.message ?: "Wallet signing failed")
+                    Log.e(CHERRY_LOG_TAG, error.message ?: "Wallet signing failed")
                     evaluate("__cherryRejectSign(${quote(id)}, ${quote(error.message ?: "Wallet signing failed")});")
                 }
         }
@@ -383,14 +365,17 @@ private class CherryNativeBridge(
     @JavascriptInterface
     fun walletConnectRequested() {
         onDebug("Wallet connect requested")
+        Log.d(CHERRY_LOG_TAG, "Wallet connect requested")
         scope.launch {
             viewModel.refreshAuth()
                 .onSuccess { auth ->
                     onDebug("Fresh token ok")
+                    Log.d(CHERRY_LOG_TAG, "Fresh token ok")
                     evaluate("__cherryUpdateAuth(${quote(auth.token)}, ${quote(auth.walletAddress)});")
                 }
                 .onFailure { error ->
                     onDebug(error.message ?: "Token refresh failed")
+                    Log.e(CHERRY_LOG_TAG, error.message ?: "Token refresh failed")
                 }
         }
     }
@@ -405,6 +390,7 @@ private class CherryNativeBridge(
         }.getOrElse {
             "Cherry event"
         }
+        Log.d(CHERRY_LOG_TAG, status)
         onDebug(status)
     }
 
@@ -426,6 +412,7 @@ private fun buildChatUrl(token: String, walletAddress: String): String {
         .appendQueryParameter("embedUrl", CHERRY_EMBED_URL)
         .appendQueryParameter("token", token)
         .appendQueryParameter("walletAddress", walletAddress)
+        .appendQueryParameter("viewportHeight", "900")
         .build()
         .toString()
 }
