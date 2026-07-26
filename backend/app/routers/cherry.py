@@ -27,11 +27,14 @@ async def create_cherry_embed_token(request: Request):
         raise HTTPException(status_code=503, detail="Cherry chat is not configured")
 
     now = datetime.now(timezone.utc)
+    issued_at = now - timedelta(seconds=60)
+    expires_at = issued_at + timedelta(minutes=5)
     token = jwt.encode(
         {
             "sub": wallet_address,
             "app_id": CHERRY_APP_ID,
-            "exp": now + timedelta(minutes=5),
+            "iat": int(issued_at.timestamp()),
+            "exp": int(expires_at.timestamp()),
             "jti": str(uuid4()),
         },
         _settings.cherry_app_secret,
