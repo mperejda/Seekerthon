@@ -6,6 +6,10 @@
     name="viewport"
     content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
   >
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self' 'nonce-seekerthon-cherry-host'; style-src 'unsafe-inline'; frame-src https://embed.cherry.fun; base-uri 'none'; form-action 'none'; object-src 'none'"
+  >
   <title>Seekerthon Chat</title>
   <script src="cherry-embed-0.1.6.js"></script>
   <style>
@@ -45,7 +49,7 @@
   <div id="chat"></div>
   <div id="status">Loading chat...</div>
 
-  <script>
+  <script nonce="seekerthon-cherry-host">
     (function () {
       var chat = null;
       var currentConfig = null;

@@ -37,6 +37,8 @@ class UserResponse(UserBase):
     id: UUID4
     skr_balance: int = 0
     skr_staked: int = 0
+    skr_balance_display: str = "0"
+    skr_staked_display: str = "0"
     vote_multiplier: float = 1.0
     is_seeker_verified: bool = False
     has_builder_pass: bool = False

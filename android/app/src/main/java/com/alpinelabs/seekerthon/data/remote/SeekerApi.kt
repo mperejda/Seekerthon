@@ -12,6 +12,8 @@ data class UserDto(
     val wallet_address: String,
     val skr_balance: Long,
     val skr_staked: Long,
+    val skr_balance_display: String? = null,
+    val skr_staked_display: String? = null,
     val vote_multiplier: Double,
     val is_seeker_verified: Boolean,
     val has_builder_pass: Boolean = false,
@@ -38,6 +40,8 @@ data class BuilderPassStatusDto(
     val available: Boolean,
     val authority_balance_lamports: Long,
     val min_required_lamports: Long,
+    val price_usdc_raw: Long,
+    val price_display: String,
     val message: String,
 )
 

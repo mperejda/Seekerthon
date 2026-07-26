@@ -9,7 +9,6 @@ import android.net.Uri
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -58,10 +57,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.doOnLayout
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewCompat
 import com.alpinelabs.seekerthon.BuildConfig
 import org.json.JSONObject
 
 private const val CHAT_ASSET_URL = "https://appassets.androidplatform.net/assets/cherry/chat.html"
+private const val CHAT_ASSET_ORIGIN = "https://appassets.androidplatform.net"
 private const val CHERRY_APP_ID = "735413f4-d9a3-4b90-af2f-845ba3ea97cd"
 private const val CHERRY_ROOM_ID = "e5150eb2-f0e2-4bd3-b092-b37053bd5594"
 private const val CHERRY_EMBED_URL = "https://embed.cherry.fun"
@@ -109,9 +110,11 @@ fun CherryChatScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        webView?.context?.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse("https://cherry.fun")),
-                        )
+                        runCatching {
+                            webView?.context?.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://cherry.fun")),
+                            )
+                        }
                     }) {
                         Icon(Icons.Outlined.OpenInBrowser, contentDescription = "Open Cherry")
                     }
@@ -201,7 +204,7 @@ private fun CherryChatWebView(
 
     val bridge = remember {
         CherryNativeBridge { event, data ->
-            Log.d(CHERRY_LOG_TAG, "event $event ${data ?: ""}")
+            if (BuildConfig.DEBUG) Log.d(CHERRY_LOG_TAG, "event $event ${data ?: ""}")
             when (event) {
                 "ready", "mounted" -> {
                     isLoading = false
@@ -213,7 +216,9 @@ private fun CherryChatWebView(
                 }
 
                 "tokenExpired" -> currentOnTokenExpired()
-                "error" -> fatalError = cherryErrorMessage(data)
+                "error" -> if (BuildConfig.DEBUG) {
+                    Log.w(CHERRY_LOG_TAG, "Cherry embed error: ${cherryErrorMessage(data)}")
+                }
             }
         }
     }
@@ -245,10 +250,19 @@ private fun CherryChatWebView(
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                     bridge.attach(this)
-                    addJavascriptInterface(bridge, "CherryNative")
+                    WebViewCompat.addWebMessageListener(
+                        this,
+                        "CherryNative",
+                        setOf(CHAT_ASSET_ORIGIN),
+                    ) { sourceView, message, sourceOrigin, isMainFrame, _ ->
+                        if (isMainFrame && sourceOrigin.toString() == CHAT_ASSET_ORIGIN) {
+                            message.data?.let { bridge.postMessage(sourceView, it) }
+                        }
+                    }
 
                     webChromeClient = object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            if (!BuildConfig.DEBUG) return true
                             val priority = if (
                                 consoleMessage.messageLevel() == ConsoleMessage.MessageLevel.ERROR
                             ) Log.ERROR else Log.DEBUG
@@ -275,24 +289,28 @@ private fun CherryChatWebView(
                             val url = request.url
                             if (url.toString() == CHAT_ASSET_URL) return false
 
-                            return try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, url))
-                                true
-                            } catch (_: ActivityNotFoundException) {
-                                true
+                            if (url.scheme == "https") {
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, url))
+                                } catch (_: ActivityNotFoundException) {
+                                    // No browser is available; keep the untrusted URL out of the WebView.
+                                }
+                            } else if (BuildConfig.DEBUG) {
+                                Log.w(CHERRY_LOG_TAG, "Blocked non-HTTPS navigation")
                             }
+                            return true
                         }
 
                         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                             isLoading = true
                             fatalError = null
                             bridge.onPageStarted()
-                            Log.d(CHERRY_LOG_TAG, "page started $url")
+                            if (BuildConfig.DEBUG) Log.d(CHERRY_LOG_TAG, "page started $url")
                             onCanGoBackChanged(view.canGoBack())
                         }
 
                         override fun onPageFinished(view: WebView, url: String?) {
-                            Log.d(CHERRY_LOG_TAG, "page finished $url")
+                            if (BuildConfig.DEBUG) Log.d(CHERRY_LOG_TAG, "page finished $url")
                             onCanGoBackChanged(view.canGoBack())
                         }
 
@@ -304,7 +322,7 @@ private fun CherryChatWebView(
                             if (request.isForMainFrame) {
                                 fatalError = "Unable to load chat: ${error.description}"
                                 isLoading = false
-                                Log.e(CHERRY_LOG_TAG, fatalError!!)
+                                if (BuildConfig.DEBUG) Log.e(CHERRY_LOG_TAG, fatalError!!)
                             }
                         }
 
@@ -314,7 +332,7 @@ private fun CherryChatWebView(
                             errorResponse: WebResourceResponse,
                         ) {
                             val url = request.url.toString()
-                            if (url.contains("cherry", ignoreCase = true)) {
+                            if (BuildConfig.DEBUG && url.contains("cherry", ignoreCase = true)) {
                                 Log.w(CHERRY_LOG_TAG, "HTTP ${errorResponse.statusCode}: $url")
                             }
                         }
@@ -412,10 +430,10 @@ private class CherryNativeBridge(
         }
     }
 
-    @JavascriptInterface
-    fun postMessage(payload: String) {
+    fun postMessage(sourceView: WebView, payload: String) {
+        if (sourceView !== webView) return
         val message = runCatching { JSONObject(payload) }.getOrElse {
-            Log.w(CHERRY_LOG_TAG, "Ignored malformed host message")
+            if (BuildConfig.DEBUG) Log.w(CHERRY_LOG_TAG, "Ignored malformed host message")
             return
         }
         val view = webView ?: return

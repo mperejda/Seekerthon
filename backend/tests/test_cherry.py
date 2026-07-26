@@ -18,7 +18,7 @@ def make_request(wallet_address: str | None = None) -> Request:
 @pytest.mark.asyncio
 async def test_embed_token_uses_authenticated_wallet_and_exact_claims(monkeypatch):
     secret = "test-cherry-secret"
-    wallet = "8e6MJ7hzSf43H8NrNTnJZ1PqZenpuQ5z99YU5Cpn4mvv"
+    wallet = "11111111111111111111111111111111"
     monkeypatch.setattr(cherry, "get_settings", lambda: SimpleNamespace(cherry_app_secret=secret))
     response = Response()
 

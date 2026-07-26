@@ -10,8 +10,9 @@ import logging
 import math
 import struct
 import uuid as _uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Tuple
+from typing import Any
 
 from solders.keypair import Keypair as SoldersKeypair
 from solders.pubkey import Pubkey
@@ -54,6 +55,51 @@ _STAKING_WALLET_OFFSET   = 41   # user pubkey at byte 41
 _STAKING_SHARES_OFFSET   = 105  # shares u128 at byte 105 (16 bytes)
 _STAKE_CONFIG_PRICE_OFFSET = 137 # share_price u128 in StakeConfig account
 STAKING_SHARE_PRICE_SCALE  = 10 ** 9  # share_price is scaled by 1e9
+SKR_DECIMALS = 6
+_USER_STAKE_DISCRIMINATOR = bytes([102, 53, 163, 107, 9, 138, 87, 153])
+_STAKE_CONFIG_DISCRIMINATOR = bytes([238, 151, 43, 3, 11, 151, 63, 176])
+
+
+@dataclass(frozen=True)
+class SkrBalances:
+    """Exact on-chain SKR amounts, stored in the mint's smallest unit."""
+
+    liquid_raw: int
+    staked_raw: int
+    decimals: int = SKR_DECIMALS
+
+    @property
+    def divisor(self) -> int:
+        return 10 ** self.decimals
+
+    @property
+    def liquid_whole(self) -> int:
+        return self.liquid_raw // self.divisor
+
+    @property
+    def staked_whole(self) -> int:
+        return self.staked_raw // self.divisor
+
+    @staticmethod
+    def _display(raw: int, decimals: int) -> str:
+        divisor = 10 ** decimals
+        whole, fractional = divmod(raw, divisor)
+        if not fractional:
+            return str(whole)
+        return f"{whole}.{fractional:0{decimals}d}".rstrip("0")
+
+    @property
+    def liquid_display(self) -> str:
+        return self._display(self.liquid_raw, self.decimals)
+
+    @property
+    def staked_display(self) -> str:
+        return self._display(self.staked_raw, self.decimals)
+
+    @classmethod
+    def from_whole(cls, liquid: int, staked: int) -> "SkrBalances":
+        divisor = 10 ** SKR_DECIMALS
+        return cls(liquid_raw=int(liquid or 0) * divisor, staked_raw=int(staked or 0) * divisor)
 
 # SPL Token program
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -247,7 +293,17 @@ async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
             resp = await client.post(rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         if resp.status_code != 429:
             resp.raise_for_status()
-            return resp.json()
+            payload = resp.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError(f"Solana RPC {method} returned a malformed response")
+            if payload.get("error"):
+                error = payload["error"]
+                if not isinstance(error, dict):
+                    raise RuntimeError(f"Solana RPC {method} returned a malformed error")
+                raise RuntimeError(
+                    f"Solana RPC {method} failed: {error.get('code')} {error.get('message')}"
+                )
+            return payload
         if attempt < 2:
             await asyncio.sleep(2 ** attempt)
     resp.raise_for_status()
@@ -263,82 +319,95 @@ def _find_ata(wallet: Pubkey, mint: Pubkey) -> Pubkey:
     return pda
 
 
-async def get_skr_balance(wallet_address: str) -> Tuple[int, int]:
+async def get_skr_balance(wallet_address: str) -> SkrBalances:
     """
-    Returns (skr_balance, skr_staked) as whole-token integers (6 decimals stripped).
-    skr_balance: liquid SKR in all token accounts owned by the wallet
-    skr_staked: SKR locked in the SKR staking program (per-user account at offset 105)
+    Return exact liquid and actively staked SKR amounts in raw token units.
+
+    Failures propagate so callers can preserve their last known good values. An
+    unstaking amount is intentionally excluded because it stops earning rewards
+    as soon as the cooldown begins.
     """
     # --- Liquid balance: all token accounts for this wallet/mint ---
     balance_raw = 0
-    decimals = 6
-    try:
-        resp = await _rpc_post(
-            "getTokenAccountsByOwner",
-            [wallet_address, {"mint": SKR_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
-            rpc_url=MAINNET_RPC_URL,
-        )
-        for acct in (resp.get("result", {}).get("value") or []):
-            info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
-            ta = info.get("tokenAmount", {})
-            balance_raw += int(ta.get("amount", 0))
-            decimals = int(ta.get("decimals", decimals))
-    except Exception as exc:
-        _log.warning("SKR liquid balance lookup failed for %s: %s", wallet_address, exc)
-
-    divisor = 10 ** decimals
+    decimals = SKR_DECIMALS
+    resp = await _rpc_post(
+        "getTokenAccountsByOwner",
+        [wallet_address, {"mint": SKR_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    token_accounts = (resp.get("result") or {}).get("value")
+    if not isinstance(token_accounts, list):
+        raise RuntimeError("SKR token account lookup returned a malformed result")
+    for acct in token_accounts:
+        info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+        token_amount = info.get("tokenAmount", {})
+        balance_raw += int(token_amount["amount"])
+        account_decimals = int(token_amount["decimals"])
+        if account_decimals != decimals:
+            raise RuntimeError(f"Unexpected SKR decimal count: {account_decimals}")
 
     # --- Staked balance: shares * share_price / STAKING_SHARE_PRICE_SCALE ---
     # The staking program is share-based. UserStake stores shares (u128); the global
     # StakeConfig holds the current share_price (u128, scaled by 1e9). As rewards accrue
     # the share price rises, so token_value = shares * share_price / 1e9.
     staked_raw = 0
-    try:
-        # Fetch current share price from the singleton StakeConfig account
-        config_resp = await _rpc_post(
-            "getAccountInfo",
-            [_STAKE_CONFIG_ADDR, {"encoding": "base64", "commitment": "confirmed"}],
-            rpc_url=MAINNET_RPC_URL,
-        )
-        config_data = base64.b64decode(
-            (config_resp.get("result", {}).get("value") or {}).get("data", [""])[0]
-        )
-        share_price = int.from_bytes(
-            config_data[_STAKE_CONFIG_PRICE_OFFSET:_STAKE_CONFIG_PRICE_OFFSET + 16], "little"
-        )
-        _log.info("SKR share_price: %d (scale 1e9 = %.6f SKR/share)", share_price, share_price / STAKING_SHARE_PRICE_SCALE)
+    config_resp = await _rpc_post(
+        "getAccountInfo",
+        [_STAKE_CONFIG_ADDR, {"encoding": "base64", "commitment": "confirmed"}],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    config_value = (config_resp.get("result") or {}).get("value")
+    if not config_value or not isinstance(config_value.get("data"), list):
+        raise RuntimeError("SKR StakeConfig account is missing or malformed")
+    config_data = base64.b64decode(config_value["data"][0], validate=True)
+    if len(config_data) < _STAKE_CONFIG_PRICE_OFFSET + 16:
+        raise RuntimeError(f"Unexpected SKR StakeConfig size: {len(config_data)}")
+    if config_data[:8] != _STAKE_CONFIG_DISCRIMINATOR:
+        raise RuntimeError("SKR StakeConfig discriminator does not match the official IDL")
+    share_price = int.from_bytes(
+        config_data[_STAKE_CONFIG_PRICE_OFFSET:_STAKE_CONFIG_PRICE_OFFSET + 16], "little"
+    )
+    if share_price <= 0:
+        raise RuntimeError("SKR StakeConfig has an invalid share price")
 
-        # Fetch user staking accounts
-        stake_resp = await _rpc_post(
-            "getProgramAccounts",
-            [
-                SKR_STAKING_PROGRAM,
-                {
-                    "encoding": "base64",
-                    "commitment": "confirmed",
-                    "filters": [
-                        {"dataSize": _STAKING_ACCT_SIZE},
-                        {"memcmp": {"offset": _STAKING_WALLET_OFFSET, "bytes": wallet_address}},
-                    ],
-                },
-            ],
-            rpc_url=MAINNET_RPC_URL,
+    stake_resp = await _rpc_post(
+        "getProgramAccounts",
+        [
+            SKR_STAKING_PROGRAM,
+            {
+                "encoding": "base64",
+                "commitment": "confirmed",
+                "filters": [
+                    {"dataSize": _STAKING_ACCT_SIZE},
+                    {"memcmp": {"offset": _STAKING_WALLET_OFFSET, "bytes": wallet_address}},
+                ],
+            },
+        ],
+        rpc_url=MAINNET_RPC_URL,
+    )
+    accounts = stake_resp.get("result")
+    if not isinstance(accounts, list):
+        raise RuntimeError("SKR staking account lookup returned a malformed result")
+    for acct in accounts:
+        data = base64.b64decode(acct["account"]["data"][0], validate=True)
+        if len(data) != _STAKING_ACCT_SIZE:
+            raise RuntimeError(f"Unexpected SKR UserStake size: {len(data)}")
+        if data[:8] != _USER_STAKE_DISCRIMINATOR:
+            raise RuntimeError("SKR UserStake discriminator does not match the official IDL")
+        shares = int.from_bytes(
+            data[_STAKING_SHARES_OFFSET:_STAKING_SHARES_OFFSET + 16], "little"
         )
-        accounts = stake_resp.get("result") or []
-        _log.info("Staking accounts found for %s: %d", wallet_address, len(accounts))
-        for acct in accounts:
-            data = base64.b64decode(acct["account"]["data"][0])
-            if len(data) >= _STAKING_SHARES_OFFSET + 16:
-                shares = int.from_bytes(data[_STAKING_SHARES_OFFSET:_STAKING_SHARES_OFFSET + 16], "little")
-                token_raw = shares * share_price // STAKING_SHARE_PRICE_SCALE
-                _log.info("Shares: %d, token_raw: %d (%.6f SKR)", shares, token_raw, token_raw / divisor)
-                staked_raw += token_raw
-        if staked_raw:
-            _log.info("Total staked SKR for %s: %d raw (%.6f whole)", wallet_address, staked_raw, staked_raw / divisor)
-    except Exception as exc:
-        _log.warning("Staked SKR lookup failed for %s: %s", wallet_address, exc)
+        staked_raw += shares * share_price // STAKING_SHARE_PRICE_SCALE
 
-    return balance_raw // divisor, staked_raw // divisor
+    balances = SkrBalances(balance_raw, staked_raw, decimals)
+    _log.info(
+        "SKR for %s: liquid=%s staked=%s accounts=%d",
+        wallet_address,
+        balances.liquid_display,
+        balances.staked_display,
+        len(accounts),
+    )
+    return balances
 
 
 def compute_vote_weight(skr_staked: int, has_builder_pass: bool = False) -> float:

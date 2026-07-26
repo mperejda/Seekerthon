@@ -7,6 +7,8 @@ data class User(
     val walletAddress: String,
     val skrBalance: Long,
     val skrStaked: Long,
+    val skrBalanceDisplay: String,
+    val skrStakedDisplay: String,
     val voteMultiplier: Double,
     val isSeekerVerified: Boolean,
     val hasBuilderPass: Boolean,

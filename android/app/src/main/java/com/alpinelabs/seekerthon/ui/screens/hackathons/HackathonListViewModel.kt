@@ -30,6 +30,7 @@ data class HackathonListUiState(
     val voteMultiplier: Double = 1.0,
     val skrId: String? = null,
     val skrStaked: Long = 0L,
+    val skrStakedDisplay: String = "0",
     val skrStakedRank: Int? = null,
     val skrStakedPercentile: Int? = null,
     val isSeekerVerified: Boolean = false,
@@ -37,7 +38,8 @@ data class HackathonListUiState(
     val hackathonsVoted: Int = 0,
     val supportNftsMinted: Int = 0,
     val memberSince: String? = null,
-    val builderPassAvailable: Boolean = true,
+    val builderPassAvailable: Boolean = false,
+    val builderPassPriceDisplay: String? = null,
     val builderPassUnavailableMessage: String? = null,
     val isMinting: Boolean = false,
     val mintSuccess: Boolean = false,
@@ -93,6 +95,7 @@ class HackathonListViewModel @Inject constructor(
                     voteMultiplier = me?.vote_multiplier ?: 1.0,
                     skrId = me?.skr_id,
                     skrStaked = me?.skr_staked ?: 0L,
+                    skrStakedDisplay = me?.skr_staked_display ?: me?.skr_staked?.toString() ?: "0",
                     skrStakedRank = me?.skr_staked_rank,
                     skrStakedPercentile = me?.skr_staked_percentile,
                     isSeekerVerified = me?.is_seeker_verified ?: false,
@@ -100,8 +103,10 @@ class HackathonListViewModel @Inject constructor(
                     hackathonsVoted = me?.hackathons_voted ?: 0,
                     supportNftsMinted = me?.support_nfts_minted ?: 0,
                     memberSince = me?.created_at?.let { formatMemberSince(it) },
-                    builderPassAvailable = builderPassStatus?.available ?: true,
-                    builderPassUnavailableMessage = builderPassStatus?.message?.takeIf { it.isNotBlank() },
+                    builderPassAvailable = builderPassStatus?.available ?: false,
+                    builderPassPriceDisplay = builderPassStatus?.price_display,
+                    builderPassUnavailableMessage = builderPassStatus?.message?.takeIf { it.isNotBlank() }
+                        ?: if (builderPassStatus == null) "Unable to load the current Builder Pass price." else null,
                 )
             } catch (e: Exception) {
                 _state.value = HackathonListUiState(error = e.message)
@@ -131,6 +136,9 @@ class HackathonListViewModel @Inject constructor(
                     voteMultiplier = me?.vote_multiplier ?: _state.value.voteMultiplier,
                     skrId = me?.skr_id ?: _state.value.skrId,
                     skrStaked = me?.skr_staked ?: _state.value.skrStaked,
+                    skrStakedDisplay = me?.skr_staked_display
+                        ?: me?.skr_staked?.toString()
+                        ?: _state.value.skrStakedDisplay,
                     skrStakedRank = me?.skr_staked_rank ?: _state.value.skrStakedRank,
                     skrStakedPercentile = me?.skr_staked_percentile ?: _state.value.skrStakedPercentile,
                     isSeekerVerified = me?.is_seeker_verified ?: _state.value.isSeekerVerified,
@@ -139,6 +147,8 @@ class HackathonListViewModel @Inject constructor(
                     supportNftsMinted = me?.support_nfts_minted ?: _state.value.supportNftsMinted,
                     memberSince = me?.created_at?.let { formatMemberSince(it) } ?: _state.value.memberSince,
                     builderPassAvailable = builderPassStatus?.available ?: _state.value.builderPassAvailable,
+                    builderPassPriceDisplay = builderPassStatus?.price_display
+                        ?: _state.value.builderPassPriceDisplay,
                     builderPassUnavailableMessage = builderPassStatus?.message
                         ?.takeIf { it.isNotBlank() }
                         ?: if (builderPassStatus?.available == true) null else _state.value.builderPassUnavailableMessage,
@@ -171,6 +181,7 @@ class HackathonListViewModel @Inject constructor(
                 }
                 // Step 1: get a buyer-only payment tx from backend
                 val prepare = api.prepareMint()
+                _state.value = _state.value.copy(builderPassPriceDisplay = prepare.amount_display)
                 // Step 2: wallet signs the clean payment tx and returns the signed bytes
                 val signedTxB64 = walletRepo.signAndSendTransaction(sender, prepare.transaction_b64).getOrThrow()
                 // Step 3: backend submits payment, verifies buyer-paid fees, then mints the NFT

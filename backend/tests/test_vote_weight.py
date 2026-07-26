@@ -1,6 +1,6 @@
 import pytest
 import math
-from app.services.solana_service import compute_vote_weight
+from app.services.solana_service import SKR_PER_STEP, compute_vote_weight
 
 
 def test_vote_weight_base():
@@ -8,9 +8,9 @@ def test_vote_weight_base():
     assert compute_vote_weight(0) == 1.0
 
 
-def test_vote_weight_100():
-    """100 staked = 2.0x"""
-    result = compute_vote_weight(100)
+def test_vote_weight_one_step():
+    """One configured SKR step produces a 2.0x weight."""
+    result = compute_vote_weight(SKR_PER_STEP)
     assert abs(result - 2.0) < 0.01
 
 
@@ -26,6 +26,7 @@ def test_vote_weight_monotonic():
 
 
 def test_vote_weight_formula():
-    """Manual formula check for 300 staked"""
-    expected = min(1 + math.log2(1 + 300 / 100), 5.0)
-    assert abs(compute_vote_weight(300) - round(expected, 4)) < 0.001
+    """Manual formula check for three configured stake steps."""
+    stake = SKR_PER_STEP * 3
+    expected = min(1 + math.log2(1 + stake / SKR_PER_STEP), 5.0)
+    assert abs(compute_vote_weight(stake) - round(expected, 4)) < 0.001

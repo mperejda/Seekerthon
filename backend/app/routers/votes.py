@@ -95,7 +95,8 @@ async def prepare_vote(body: VotePrepareRequest, request: Request):
     # Compute and lock vote weight now — not at confirm time.
     # Only on-chain *staked* SKR counts: liquid balance is ignored on purpose
     # so a whale can't split tokens across multiple wallets for free influence.
-    _, skr_staked = await get_skr_balance(wallet)
+    skr_balances = await get_skr_balance(wallet)
+    skr_staked = skr_balances.staked_whole
     vote_weight = compute_vote_weight(skr_staked, has_builder_pass)
     vote_weight_bps = int(vote_weight * 10000)
 

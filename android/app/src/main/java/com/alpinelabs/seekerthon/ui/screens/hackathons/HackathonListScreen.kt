@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alpinelabs.seekerthon.domain.model.Hackathon
 import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -155,7 +158,7 @@ fun HackathonListScreen(
                     item {
                         UserStatsCard(
                             skrId = state.skrId,
-                            skrStaked = state.skrStaked,
+                            skrStakedDisplay = state.skrStakedDisplay,
                             skrStakedRank = state.skrStakedRank,
                             skrStakedPercentile = state.skrStakedPercentile,
                             isSeekerVerified = state.isSeekerVerified,
@@ -172,6 +175,7 @@ fun HackathonListScreen(
                         BuilderPassCard(
                             hasBuilderPass = state.hasBuilderPass,
                             builderPassAvailable = state.builderPassAvailable,
+                            builderPassPriceDisplay = state.builderPassPriceDisplay,
                             builderPassUnavailableMessage = state.builderPassUnavailableMessage,
                             isMinting = state.isMinting,
                             mintSuccess = state.mintSuccess,
@@ -188,6 +192,7 @@ fun HackathonListScreen(
 private fun BuilderPassCard(
     hasBuilderPass: Boolean,
     builderPassAvailable: Boolean,
+    builderPassPriceDisplay: String?,
     builderPassUnavailableMessage: String?,
     isMinting: Boolean,
     mintSuccess: Boolean,
@@ -240,7 +245,7 @@ private fun BuilderPassCard(
                     !builderPassAvailable ->
                         builderPassUnavailableMessage ?: "Builder Pass minting is temporarily unavailable."
                     else ->
-                        "5× vote boost on top of your SKR multiplier. Mint for $10 USDC."
+                        "5× vote boost on top of your SKR multiplier. Mint for ${builderPassPriceDisplay ?: "--"} USDC."
                 },
                 fontSize = 13.sp,
                 color = if (!hasBuilderPass && !mintSuccess && !builderPassAvailable)
@@ -265,7 +270,7 @@ private fun BuilderPassCard(
                         Spacer(Modifier.width(8.dp))
                         Text("Minting…")
                     } else {
-                        Text("Mint Alpine Labs Builder Pass for 5× vote boost")
+                        Text("Mint for ${builderPassPriceDisplay ?: "--"} USDC")
                     }
                 }
             }
@@ -273,10 +278,18 @@ private fun BuilderPassCard(
     }
 }
 
+private fun formatSkrAmount(value: String): String = runCatching {
+    NumberFormat.getNumberInstance().apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 2
+        roundingMode = RoundingMode.HALF_UP
+    }.format(BigDecimal(value))
+}.getOrDefault(value)
+
 @Composable
 private fun UserStatsCard(
     skrId: String?,
-    skrStaked: Long,
+    skrStakedDisplay: String,
     skrStakedRank: Int?,
     skrStakedPercentile: Int?,
     isSeekerVerified: Boolean,
@@ -311,7 +324,7 @@ private fun UserStatsCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "Seeker ID", value = skrId ?: "—")
-                StatItem(label = "Staked SKR", value = "%,d".format(skrStaked), textAlign = TextAlign.End)
+                StatItem(label = "Staked SKR", value = formatSkrAmount(skrStakedDisplay), textAlign = TextAlign.End)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem(label = "SKR Rank", value = if (skrStakedRank != null) "#$skrStakedRank" else "—")

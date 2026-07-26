@@ -24,6 +24,7 @@ _SOLANA_PUBKEY_RE = re.compile(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')
 class DeviceTokenRequest(BaseModel):
     token: str
 from app.services.solana_service import (
+    SkrBalances,
     get_skr_balance,
     get_skr_id,
     compute_vote_weight,
@@ -128,14 +129,18 @@ async def login(body: UserCreate, response: Response):
     # Genesis fallback: use cached value for returning users; _FAILED for new users
     # so a timeout doesn't silently block a legitimate SGT holder on first login.
     genesis_fallback = cached.get("is_seeker_verified", _FAILED)
+    cached_balances = SkrBalances.from_whole(
+        cached.get("skr_balance", 0),
+        cached.get("skr_staked", 0),
+    )
 
     (
-        (skr_balance, skr_staked),
+        skr_balances,
         is_seeker_verified,
         has_builder_pass,
         skr_id_result,
     ) = await asyncio.gather(
-        _timed(get_skr_balance(body.wallet_address), (cached.get("skr_balance", 0), cached.get("skr_staked", 0))),
+        _timed(get_skr_balance(body.wallet_address), cached_balances),
         _timed(verify_seeker_genesis_holder(body.wallet_address), genesis_fallback),
         _timed(verify_builder_pass_holder(body.wallet_address), cached.get("has_builder_pass", False)),
         _timed(get_skr_id(body.wallet_address), _FAILED),
@@ -147,6 +152,8 @@ async def login(body: UserCreate, response: Response):
         raise HTTPException(status_code=403, detail="A Seeker Genesis Token is required to sign in.")
 
     # Only on-chain staked SKR contributes to vote weight — liquid balance does not.
+    skr_balance = skr_balances.liquid_whole
+    skr_staked = skr_balances.staked_whole
     vote_multiplier = compute_vote_weight(skr_staked, has_builder_pass)
 
     user_data = {
@@ -170,7 +177,14 @@ async def login(body: UserCreate, response: Response):
     }
     token = jwt.encode(payload, _settings.jwt_secret, algorithm=_settings.jwt_algorithm)
     _set_session_cookie(response, token)
-    return AuthToken(access_token=token, user=UserResponse(**user))
+    return AuthToken(
+        access_token=token,
+        user=UserResponse(
+            **user,
+            skr_balance_display=skr_balances.liquid_display,
+            skr_staked_display=skr_balances.staked_display,
+        ),
+    )
 
 
 @router.post("/logout", status_code=204)
@@ -193,11 +207,15 @@ async def get_me(request: Request):
         raise HTTPException(status_code=404, detail="User not found")
 
     try:
-        skr_balance, skr_staked = await get_skr_balance(wallet)
+        skr_balances = await get_skr_balance(wallet)
     except Exception as exc:
         log.warning("SKR balance lookup failed for %s, using cached value: %s", wallet, exc)
-        skr_balance = existing.data.get("skr_balance", 0)
-        skr_staked = existing.data.get("skr_staked", 0)
+        skr_balances = SkrBalances.from_whole(
+            existing.data.get("skr_balance", 0),
+            existing.data.get("skr_staked", 0),
+        )
+    skr_balance = skr_balances.liquid_whole
+    skr_staked = skr_balances.staked_whole
     try:
         is_seeker_verified = await verify_seeker_genesis_holder(wallet)
     except Exception as exc:
@@ -257,7 +275,16 @@ async def get_me(request: Request):
         if total_stakers > 0:
             skr_staked_percentile = max(1, math.ceil(count_above / total_stakers * 100))
 
-    return UserResponse(**result.data[0], votes_cast=votes_cast, hackathons_voted=hackathons_voted, support_nfts_minted=support_nfts_minted, skr_staked_rank=skr_staked_rank, skr_staked_percentile=skr_staked_percentile)
+    return UserResponse(
+        **result.data[0],
+        skr_balance_display=skr_balances.liquid_display,
+        skr_staked_display=skr_balances.staked_display,
+        votes_cast=votes_cast,
+        hackathons_voted=hackathons_voted,
+        support_nfts_minted=support_nfts_minted,
+        skr_staked_rank=skr_staked_rank,
+        skr_staked_percentile=skr_staked_percentile,
+    )
 
 
 @router.get("/me/activity", response_model=UserActivityResponse)
@@ -336,4 +363,8 @@ async def get_user(user_id: str, request: Request):
     result = db.table("users").select("*").eq("id", user_id).maybe_single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(**result.data)
+    return UserResponse(
+        **result.data,
+        skr_balance_display=str(result.data.get("skr_balance", 0)),
+        skr_staked_display=str(result.data.get("skr_staked", 0)),
+    )

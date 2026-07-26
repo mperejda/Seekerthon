@@ -42,6 +42,8 @@ class BuilderPassStatusResponse(BaseModel):
     available: bool
     authority_balance_lamports: int
     min_required_lamports: int
+    price_usdc_raw: int
+    price_display: str
     message: str
 
 
@@ -61,10 +63,30 @@ async def _require_builder_pass_mint_available() -> dict:
 @router.get("/builder-pass/status", response_model=BuilderPassStatusResponse)
 async def builder_pass_status():
     try:
-        return await get_builder_pass_mint_availability()
+        status = await get_builder_pass_mint_availability()
+        price = _settings.builder_pass_price_usdc
+        return {
+            **status,
+            "price_usdc_raw": price,
+            "price_display": _format_usdc(price),
+        }
     except Exception:
         _log.exception("Failed to check Builder Pass mint availability")
         raise HTTPException(status_code=500, detail="Failed to check Builder Pass mint availability")
+
+
+def _format_usdc(raw_amount: int) -> str:
+    return f"{raw_amount / 1_000_000:.6g}"
+
+
+def _is_confirmed_mint(row: dict) -> bool:
+    mint_signature = str(row.get("mint_tx_signature") or "")
+    return (
+        row.get("status") == "confirmed"
+        and bool(row.get("mint_pubkey"))
+        and bool(mint_signature)
+        and mint_signature != row.get("payment_tx_signature")
+    )
 
 
 async def _builder_pass_mint_cost_snapshot(mint_sig: str) -> dict:
@@ -119,12 +141,12 @@ async def prepare_builder_pass_mint(request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         _log.exception("Failed to build Builder Pass payment transaction")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to prepare Builder Pass payment")
 
     return PrepareResponse(
         transaction_b64=tx_b64,
         amount_raw=price,
-        amount_display=f"{price / 1_000_000:.6g}",
+        amount_display=_format_usdc(price),
     )
 
 
@@ -158,6 +180,17 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         if existing:
             if str(existing["user_id"]) != request.state.user_id:
                 raise HTTPException(status_code=409, detail="Payment already used by another account")
+            if not _is_confirmed_mint(existing):
+                _log.error(
+                    "Builder Pass payment requires reconciliation user=%s payment=%s status=%s",
+                    request.state.user_id,
+                    payment_sig,
+                    existing.get("status"),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Payment received, but the Builder Pass mint requires support reconciliation.",
+                )
             db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
             _log.info(
                 "Builder pass claim is a retry — reusing existing mint user=%s mint=%s payment=%s",
@@ -221,7 +254,7 @@ async def claim_builder_pass(request: Request, body: ClaimRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         _log.exception("Combined mint tx submission failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Builder Pass mint failed")
 
     db.table("users").update({"has_builder_pass": True}).eq("id", request.state.user_id).execute()
     _log.info("Builder pass granted to user %s mint=%s tx=%s", request.state.user_id, mint_pubkey, mint_sig)

@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     builder_pass_treasury: str = ""
     builder_pass_metadata_uri: str = ""
     builder_pass_authority_keypair: str = "[]"  # JSON array of keypair bytes
-    builder_pass_price_usdc: int = 10_000_000   # $10 USDC (6 decimals); set to 0 to disable payment
+    builder_pass_price_usdc: int = 50_000_000   # $50 USDC (6 decimals); set to 0 to disable payment
     builder_pass_sol_fee_lamports: int = 0  # Deprecated; backend pays Builder Pass mint rent/fees
     builder_pass_min_mint_balance_lamports: int = 30_000_000  # 0.03 SOL; conservative one-mint threshold
     sol_usd_price_url: str = "https://api.coingecko.com/api/v3/simple/price"
