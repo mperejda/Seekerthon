@@ -45,7 +45,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,10 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.webkit.WebViewAssetLoader
-import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
-import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 private const val CHAT_ASSET_URL = "https://appassets.androidplatform.net/assets/cherry/chat.html"
@@ -75,8 +70,6 @@ fun CherryChatScreen(
     viewModel: CherryChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val sender = LocalActivityResultSender.current
-    val scope = rememberCoroutineScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
 
@@ -128,7 +121,7 @@ fun CherryChatScreen(
                 onRetry = viewModel::loadToken,
                 modifier = Modifier.padding(padding),
             )
-            state.token != null && state.walletAddress != null -> {
+            state.token != null -> {
                 Box(
                     modifier = Modifier
                         .padding(padding)
@@ -136,10 +129,6 @@ fun CherryChatScreen(
                 ) {
                     CherryChatWebView(
                         token = state.token!!,
-                        walletAddress = state.walletAddress!!,
-                        sender = sender,
-                        viewModel = viewModel,
-                        scope = scope,
                         onDebug = {},
                         onWebViewCreated = { webView = it },
                         onCanGoBackChanged = { canGoBack = it },
@@ -187,10 +176,6 @@ private fun ErrorState(
 @Composable
 private fun CherryChatWebView(
     token: String,
-    walletAddress: String,
-    sender: ActivityResultSender,
-    viewModel: CherryChatViewModel,
-    scope: CoroutineScope,
     onDebug: (String) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     onCanGoBackChanged: (Boolean) -> Unit,
@@ -219,10 +204,6 @@ private fun CherryChatWebView(
 
                     addJavascriptInterface(
                         CherryNativeBridge(
-                            webView = this,
-                            viewModel = viewModel,
-                            sender = sender,
-                            scope = scope,
                             onDebug = onDebug,
                         ),
                         "CherryNative",
@@ -307,7 +288,7 @@ private fun CherryChatWebView(
                         }
                     }
 
-                    loadUrl(buildChatUrl(token, walletAddress))
+                    loadUrl(buildChatUrl(token))
                     onWebViewCreated(this)
                 }
             },
@@ -337,49 +318,8 @@ private fun WebErrorOverlay(message: String) {
 }
 
 private class CherryNativeBridge(
-    private val webView: WebView,
-    private val viewModel: CherryChatViewModel,
-    private val sender: ActivityResultSender,
-    private val scope: CoroutineScope,
     private val onDebug: (String) -> Unit,
 ) {
-    @JavascriptInterface
-    fun signChallenge(id: String, messageBase64: String) {
-        onDebug("Signing challenge")
-        Log.d(CHERRY_LOG_TAG, "Signing challenge")
-        scope.launch {
-            viewModel.signChallenge(sender, messageBase64)
-                .onSuccess { signatureBase64 ->
-                    onDebug("Signature returned")
-                    Log.d(CHERRY_LOG_TAG, "Signature returned")
-                    evaluate("__cherryResolveSign(${quote(id)}, ${quote(signatureBase64)});")
-                }
-                .onFailure { error ->
-                    onDebug(error.message ?: "Wallet signing failed")
-                    Log.e(CHERRY_LOG_TAG, error.message ?: "Wallet signing failed")
-                    evaluate("__cherryRejectSign(${quote(id)}, ${quote(error.message ?: "Wallet signing failed")});")
-                }
-        }
-    }
-
-    @JavascriptInterface
-    fun walletConnectRequested() {
-        onDebug("Wallet connect requested")
-        Log.d(CHERRY_LOG_TAG, "Wallet connect requested")
-        scope.launch {
-            viewModel.refreshAuth()
-                .onSuccess { auth ->
-                    onDebug("Fresh token ok")
-                    Log.d(CHERRY_LOG_TAG, "Fresh token ok")
-                    evaluate("__cherryUpdateAuth(${quote(auth.token)}, ${quote(auth.walletAddress)});")
-                }
-                .onFailure { error ->
-                    onDebug(error.message ?: "Token refresh failed")
-                    Log.e(CHERRY_LOG_TAG, error.message ?: "Token refresh failed")
-                }
-        }
-    }
-
     @JavascriptInterface
     fun onCherryEvent(payload: String) {
         val status = runCatching {
@@ -393,17 +333,9 @@ private class CherryNativeBridge(
         Log.d(CHERRY_LOG_TAG, status)
         onDebug(status)
     }
-
-    private fun evaluate(script: String) {
-        webView.post {
-            webView.evaluateJavascript(script, null)
-        }
-    }
-
-    private fun quote(value: String): String = JSONObject.quote(value)
 }
 
-private fun buildChatUrl(token: String, walletAddress: String): String {
+private fun buildChatUrl(token: String): String {
     return Uri.parse(CHAT_ASSET_URL)
         .buildUpon()
         .appendQueryParameter("appId", CHERRY_APP_ID)
@@ -411,7 +343,6 @@ private fun buildChatUrl(token: String, walletAddress: String): String {
         .appendQueryParameter("mode", "single")
         .appendQueryParameter("embedUrl", CHERRY_EMBED_URL)
         .appendQueryParameter("token", token)
-        .appendQueryParameter("walletAddress", walletAddress)
         .appendQueryParameter("viewportHeight", "900")
         .build()
         .toString()

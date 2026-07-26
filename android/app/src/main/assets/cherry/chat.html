@@ -55,11 +55,9 @@
       const appId = params.get("appId");
       const roomId = params.get("roomId");
       const token = params.get("token");
-      const walletAddress = params.get("walletAddress");
       const embedUrl = params.get("embedUrl") || "https://embed.cherry.fun";
       const viewportHeight = Number(params.get("viewportHeight") || "0");
       const container = document.getElementById("chat");
-      const pendingSigns = new Map();
       let readyTimer = null;
 
       function viewportPx() {
@@ -139,61 +137,10 @@
         document.body.appendChild(script);
       }
 
-      function bytesToBase64(bytes) {
-        if (window.CherryEmbedSDK && window.CherryEmbedSDK.bytesToBase64) {
-          return window.CherryEmbedSDK.bytesToBase64(bytes);
-        }
-        let binary = "";
-        bytes.forEach(function (byte) { binary += String.fromCharCode(byte); });
-        return btoa(binary);
-      }
-
-      function base64ToBytes(base64) {
-        if (window.CherryEmbedSDK && window.CherryEmbedSDK.base64ToBytes) {
-          return window.CherryEmbedSDK.base64ToBytes(base64);
-        }
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return bytes;
-      }
-
-      window.__cherryResolveSign = function (id, signatureBase64) {
-        const pending = pendingSigns.get(id);
-        if (!pending) return;
-        pendingSigns.delete(id);
-        pending.resolve(base64ToBytes(signatureBase64));
-      };
-
-      window.__cherryRejectSign = function (id, message) {
-        const pending = pendingSigns.get(id);
-        if (!pending) return;
-        pendingSigns.delete(id);
-        showStatus(message || "Wallet signing failed");
-        pending.reject(new Error(message || "Wallet signing failed"));
-      };
-
-      window.__cherryUpdateAuth = function (freshToken, freshWalletAddress) {
+      window.__cherryUpdateAuth = function (freshToken) {
         if (!window.__cherryChat) return;
         window.__cherryChat.setToken(freshToken);
-        window.__cherryChat.setWalletAddress(freshWalletAddress);
       };
-
-      function signWithNative(messageBytes) {
-        return new Promise(function (resolve, reject) {
-          if (!window.CherryNative || !window.CherryNative.signChallenge) {
-            reject(new Error("Native signing bridge is unavailable"));
-            return;
-          }
-
-          const id = (crypto.randomUUID && crypto.randomUUID()) ||
-            String(Date.now()) + "-" + Math.random().toString(36).slice(2);
-          pendingSigns.set(id, { resolve: resolve, reject: reject });
-          window.CherryNative.signChallenge(id, bytesToBase64(messageBytes));
-        });
-      }
 
       function emitNative(event, data) {
         if (!window.CherryNative || !window.CherryNative.onCherryEvent) return;
@@ -219,14 +166,14 @@
         });
       }
 
-      if (!appId || !roomId || !token || !walletAddress) {
+      if (!appId || !roomId || !token) {
         showStatus("Cherry chat is not configured for this build.");
         return;
       }
 
       function mountCherry() {
         forceViewportHeight();
-        emitNative("mounting", { appId: appId, roomId: roomId, walletAddress: walletAddress });
+        emitNative("mounting", { appId: appId, roomId: roomId });
         const sdk = window.CherryEmbedSDK;
         if (!sdk || !sdk.CherryEmbed) {
           loadScript(1, mountCherry);
@@ -240,7 +187,6 @@
           roomId: roomId,
           mode: "single",
           token: token,
-          walletAddress: walletAddress,
           container: "#chat",
           theme: { mode: "dark", primaryColor: "#FF5BA8" },
           layout: {
@@ -248,8 +194,7 @@
             headerTitle: "Seekerthon Chat",
             showMemberCount: true,
             showInput: true
-          },
-          signChallengeHandler: signWithNative
+          }
         });
         window.__cherryChat = chat;
         forceViewportHeight();
@@ -269,9 +214,6 @@
         chat.on("preview", function (state) { emitNative("preview", state); });
         chat.on("walletConnectRequested", function () {
           emitNative("walletConnectRequested", null);
-          if (window.CherryNative && window.CherryNative.walletConnectRequested) {
-            window.CherryNative.walletConnectRequested();
-          }
         });
         chat.on("error", function (error) { emitNative("error", error); });
         readyTimer = setTimeout(function () {
