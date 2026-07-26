@@ -8,8 +8,10 @@ import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -31,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -46,7 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -74,6 +80,7 @@ fun CherryChatScreen(
     val scope = rememberCoroutineScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
+    var debugStatus by remember { mutableStateOf("Token: waiting") }
 
     if (state.sessionExpired) {
         LaunchedEffect(Unit) { onSessionExpired() }
@@ -117,6 +124,9 @@ fun CherryChatScreen(
                 modifier = Modifier.padding(padding),
             )
             state.token != null && state.walletAddress != null -> {
+                LaunchedEffect(state.token, state.walletAddress) {
+                    debugStatus = "Token ok: ${state.walletAddress!!.take(4)}...${state.walletAddress!!.takeLast(4)}"
+                }
                 Box(
                     modifier = Modifier
                         .padding(padding)
@@ -128,9 +138,11 @@ fun CherryChatScreen(
                         sender = sender,
                         viewModel = viewModel,
                         scope = scope,
+                        onDebug = { debugStatus = it },
                         onWebViewCreated = { webView = it },
                         onCanGoBackChanged = { canGoBack = it },
                     )
+                    DebugStrip(debugStatus)
                 }
             }
         }
@@ -178,6 +190,7 @@ private fun CherryChatWebView(
     sender: ActivityResultSender,
     viewModel: CherryChatViewModel,
     scope: CoroutineScope,
+    onDebug: (String) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     onCanGoBackChanged: (Boolean) -> Unit,
 ) {
@@ -209,6 +222,7 @@ private fun CherryChatWebView(
                             viewModel = viewModel,
                             sender = sender,
                             scope = scope,
+                            onDebug = onDebug,
                         ),
                         "CherryNative",
                     )
@@ -222,6 +236,7 @@ private fun CherryChatWebView(
                                 message.contains("cherry", ignoreCase = true)
                             ) {
                                 webError = message
+                                onDebug("Console: $message")
                             }
                             return true
                         }
@@ -252,12 +267,37 @@ private fun CherryChatWebView(
                         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                             isLoading = true
                             webError = null
+                            onDebug("WebView loading host page")
                             onCanGoBackChanged(view.canGoBack())
                         }
 
                         override fun onPageFinished(view: WebView, url: String?) {
                             isLoading = false
+                            onDebug("WebView host loaded")
                             onCanGoBackChanged(view.canGoBack())
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView,
+                            request: WebResourceRequest,
+                            error: WebResourceError,
+                        ) {
+                            if (request.isForMainFrame) {
+                                val message = "WebView error: ${error.description}"
+                                webError = message
+                                onDebug(message)
+                            }
+                        }
+
+                        override fun onReceivedHttpError(
+                            view: WebView,
+                            request: WebResourceRequest,
+                            errorResponse: WebResourceResponse,
+                        ) {
+                            val url = request.url.toString()
+                            if (url.contains("cherry", ignoreCase = true)) {
+                                onDebug("HTTP ${errorResponse.statusCode}: ${request.url.host}")
+                            }
                         }
                     }
 
@@ -271,6 +311,28 @@ private fun CherryChatWebView(
             LoadingState()
         } else if (webError != null) {
             WebErrorOverlay(message = webError!!)
+        }
+    }
+}
+
+@Composable
+private fun DebugStrip(message: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+            tonalElevation = 2.dp,
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+            )
         }
     }
 }
@@ -292,15 +354,19 @@ private class CherryNativeBridge(
     private val viewModel: CherryChatViewModel,
     private val sender: ActivityResultSender,
     private val scope: CoroutineScope,
+    private val onDebug: (String) -> Unit,
 ) {
     @JavascriptInterface
     fun signChallenge(id: String, messageBase64: String) {
+        onDebug("Signing challenge")
         scope.launch {
             viewModel.signChallenge(sender, messageBase64)
                 .onSuccess { signatureBase64 ->
+                    onDebug("Signature returned")
                     evaluate("__cherryResolveSign(${quote(id)}, ${quote(signatureBase64)});")
                 }
                 .onFailure { error ->
+                    onDebug(error.message ?: "Wallet signing failed")
                     evaluate("__cherryRejectSign(${quote(id)}, ${quote(error.message ?: "Wallet signing failed")});")
                 }
         }
@@ -308,17 +374,30 @@ private class CherryNativeBridge(
 
     @JavascriptInterface
     fun walletConnectRequested() {
+        onDebug("Wallet connect requested")
         scope.launch {
             viewModel.refreshAuth()
                 .onSuccess { auth ->
+                    onDebug("Fresh token ok")
                     evaluate("__cherryUpdateAuth(${quote(auth.token)}, ${quote(auth.walletAddress)});")
+                }
+                .onFailure { error ->
+                    onDebug(error.message ?: "Token refresh failed")
                 }
         }
     }
 
     @JavascriptInterface
     fun onCherryEvent(payload: String) {
-        // Hook for debug logging or analytics if needed; keep bridge available for host page events.
+        val status = runCatching {
+            val json = JSONObject(payload)
+            val event = json.optString("event", "event")
+            val data = json.opt("data")
+            if (data == null || data == JSONObject.NULL) "Cherry: $event" else "Cherry: $event $data"
+        }.getOrElse {
+            "Cherry event"
+        }
+        onDebug(status)
     }
 
     private fun evaluate(script: String) {

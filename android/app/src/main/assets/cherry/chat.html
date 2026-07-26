@@ -147,6 +147,7 @@
       }
 
       function mountCherry() {
+        emitNative("mounting", { appId: appId, roomId: roomId, walletAddress: walletAddress });
         const sdk = window.CherryEmbedSDK;
         if (!sdk || !sdk.CherryEmbed) {
           loadScript(1, mountCherry);
