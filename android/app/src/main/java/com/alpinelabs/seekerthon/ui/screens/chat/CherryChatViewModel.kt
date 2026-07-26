@@ -80,7 +80,9 @@ class CherryChatViewModel @Inject constructor(
         messageBase64: String,
     ): Result<String> {
         val message = Base64.decode(messageBase64, Base64.DEFAULT)
-        return walletRepository.signCherryChallenge(sender, message)
+        val expectedWalletAddress = state.value.walletAddress
+            ?: return Result.failure(Exception("Missing authenticated wallet address"))
+        return walletRepository.signCherryChallenge(sender, message, expectedWalletAddress)
             .map { signature ->
                 Base64.encodeToString(signature, Base64.NO_WRAP)
             }

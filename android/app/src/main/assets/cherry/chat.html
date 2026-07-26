@@ -112,6 +112,7 @@
         const pending = pendingSigns.get(id);
         if (!pending) return;
         pendingSigns.delete(id);
+        showStatus(message || "Wallet signing failed");
         pending.reject(new Error(message || "Wallet signing failed"));
       };
 
