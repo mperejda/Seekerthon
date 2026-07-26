@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import hackathons, mint, newsletter, projects, registrations, support_nft, votes, users
+from app.routers import cherry, hackathons, mint, newsletter, projects, registrations, support_nft, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
 from app import scheduler
@@ -41,6 +41,7 @@ api.include_router(mint.router, prefix="/api/v1/mint", tags=["mint"])
 api.include_router(newsletter.router, prefix="/api/v1", tags=["newsletter"])
 api.include_router(support_nft.router, prefix="/api/v1/support-nft", tags=["support-nft"])
 api.include_router(support_nft.router, prefix="/api/v1", tags=["support-nft-metadata"])
+api.include_router(cherry.router, prefix="/api/v1", tags=["cherry"])
 
 
 @api.get("/health")

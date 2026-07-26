@@ -89,6 +89,7 @@ dependencies {
 
     // Chrome Custom Tabs (in-app browser overlay for YouTube links)
     implementation 'androidx.browser:browser:1.8.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
 
     // Networking
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'

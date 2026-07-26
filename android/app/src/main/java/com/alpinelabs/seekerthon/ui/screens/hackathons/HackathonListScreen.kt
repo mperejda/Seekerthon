@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.*
@@ -40,6 +41,7 @@ fun HackathonListScreen(
     onSignOut: () -> Unit,
     onCreateHackathon: () -> Unit,
     onActivityClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
     viewModel: HackathonListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -58,6 +60,9 @@ fun HackathonListScreen(
         TopAppBar(
             title = { Text("Seekerthon") },
             actions = {
+                IconButton(onClick = onChatClick) {
+                    Icon(Icons.Outlined.Chat, contentDescription = "Chat")
+                }
                 IconButton(onClick = { viewModel.signOut(onSignOut) }) {
                     Icon(Icons.Outlined.Logout, contentDescription = "Sign out")
                 }

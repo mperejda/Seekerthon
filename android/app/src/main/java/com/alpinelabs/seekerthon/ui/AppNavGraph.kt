@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.alpinelabs.seekerthon.ui.screens.activity.ActivityScreen
+import com.alpinelabs.seekerthon.ui.screens.chat.CherryChatScreen
 import com.alpinelabs.seekerthon.ui.screens.feed.VotingFeedScreen
 import com.alpinelabs.seekerthon.ui.screens.hackathons.CreateHackathonScreen
 import com.alpinelabs.seekerthon.ui.screens.hackathons.HackathonListScreen
@@ -17,6 +18,7 @@ object Routes {
     const val HACKATHONS = "hackathons"
     const val CREATE_HACKATHON = "create_hackathon"
     const val ACTIVITY = "activity"
+    const val CHAT = "chat"
     const val VOTING_FEED = "feed/{hackathonId}?leaderboardOnly={leaderboardOnly}"
     fun votingFeed(id: String, leaderboardOnly: Boolean = false) = "feed/$id?leaderboardOnly=$leaderboardOnly"
 }
@@ -52,6 +54,20 @@ fun AppNavGraph() {
                 },
                 onActivityClick = {
                     navController.navigate(Routes.ACTIVITY)
+                },
+                onChatClick = {
+                    navController.navigate(Routes.CHAT)
+                },
+            )
+        }
+
+        composable(Routes.CHAT) {
+            CherryChatScreen(
+                onBack = { navController.popBackStack() },
+                onSessionExpired = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 },
             )
         }

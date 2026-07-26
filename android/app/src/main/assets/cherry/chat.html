@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Seekerthon Chat</title>
+  <style>
+    html,
+    body,
+    #chat {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #0a0a12;
+      color: #ffffff;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .status {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      padding: 24px;
+      text-align: center;
+      color: #afa9ec;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="chat">
+    <div class="status">Loading chat...</div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@cherrydotfun/chat-embed-sdk@0.1.6/dist/index.global.js"></script>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const appId = params.get("appId");
+      const roomId = params.get("roomId");
+      const token = params.get("token");
+      const walletAddress = params.get("walletAddress");
+      const embedUrl = params.get("embedUrl") || "https://embed.cherry.fun";
+      const container = document.getElementById("chat");
+      const pendingSigns = new Map();
+
+      function showStatus(message) {
+        container.innerHTML = "";
+        const status = document.createElement("div");
+        status.className = "status";
+        status.textContent = message;
+        container.appendChild(status);
+      }
+
+      function bytesToBase64(bytes) {
+        if (window.CherryEmbedSDK && window.CherryEmbedSDK.bytesToBase64) {
+          return window.CherryEmbedSDK.bytesToBase64(bytes);
+        }
+        let binary = "";
+        bytes.forEach(function (byte) { binary += String.fromCharCode(byte); });
+        return btoa(binary);
+      }
+
+      function base64ToBytes(base64) {
+        if (window.CherryEmbedSDK && window.CherryEmbedSDK.base64ToBytes) {
+          return window.CherryEmbedSDK.base64ToBytes(base64);
+        }
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      window.__cherryResolveSign = function (id, signatureBase64) {
+        const pending = pendingSigns.get(id);
+        if (!pending) return;
+        pendingSigns.delete(id);
+        pending.resolve(base64ToBytes(signatureBase64));
+      };
+
+      window.__cherryRejectSign = function (id, message) {
+        const pending = pendingSigns.get(id);
+        if (!pending) return;
+        pendingSigns.delete(id);
+        pending.reject(new Error(message || "Wallet signing failed"));
+      };
+
+      window.__cherryUpdateAuth = function (freshToken, freshWalletAddress) {
+        if (!window.__cherryChat) return;
+        window.__cherryChat.setToken(freshToken);
+        window.__cherryChat.setWalletAddress(freshWalletAddress);
+      };
+
+      function signWithNative(messageBytes) {
+        return new Promise(function (resolve, reject) {
+          if (!window.CherryNative || !window.CherryNative.signChallenge) {
+            reject(new Error("Native signing bridge is unavailable"));
+            return;
+          }
+
+          const id = (crypto.randomUUID && crypto.randomUUID()) ||
+            String(Date.now()) + "-" + Math.random().toString(36).slice(2);
+          pendingSigns.set(id, { resolve: resolve, reject: reject });
+          window.CherryNative.signChallenge(id, bytesToBase64(messageBytes));
+        });
+      }
+
+      function emitNative(event, data) {
+        if (!window.CherryNative || !window.CherryNative.onCherryEvent) return;
+        window.CherryNative.onCherryEvent(JSON.stringify({ event: event, data: data }));
+      }
+
+      if (!appId || !roomId || !token || !walletAddress) {
+        showStatus("Cherry chat is not configured for this build.");
+        return;
+      }
+
+      function mountCherry() {
+        const sdk = window.CherryEmbedSDK;
+        if (!sdk || !sdk.CherryEmbed) {
+          showStatus("Cherry chat failed to load. Check your connection and try again.");
+          return;
+        }
+
+        const chat = new sdk.CherryEmbed({
+          appId: appId,
+          embedUrl: embedUrl,
+          roomId: roomId,
+          mode: "single",
+          token: token,
+          walletAddress: walletAddress,
+          container: "#chat",
+          theme: { mode: "dark", primaryColor: "#FF5BA8" },
+          signChallengeHandler: signWithNative
+        });
+        window.__cherryChat = chat;
+        chat.on("ready", function () { emitNative("ready", null); });
+        chat.on("authStateChange", function (ok) { emitNative("authStateChange", ok); });
+        chat.on("preview", function (state) { emitNative("preview", state); });
+        chat.on("walletConnectRequested", function () {
+          emitNative("walletConnectRequested", null);
+          if (window.CherryNative && window.CherryNative.walletConnectRequested) {
+            window.CherryNative.walletConnectRequested();
+          }
+        });
+        chat.on("error", function (error) { emitNative("error", error); });
+        chat.mount().catch(function (error) {
+          showStatus(error && error.message ? error.message : "Cherry chat failed to mount.");
+        });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", mountCherry);
+      } else {
+        mountCherry();
+      }
+    })();
+  </script>
+</body>
+</html>

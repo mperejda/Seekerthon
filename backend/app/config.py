@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # Firebase Cloud Messaging — service account JSON as a single-line string
     firebase_service_account_json: str = ""
 
+    # Cherry chat embed secret. Server-side only; never expose in Android/web clients.
+    cherry_app_secret: str = ""
+
     class Config:
         env_file = ".env"
 

@@ -123,6 +123,7 @@ data class SupportNftPrepareResponseDto(
 data class SupportNftClaimRequestDto(val signed_tx_b64: String, val project_id: String)
 data class SupportNftClaimResponseDto(val success: Boolean, val tx_signature: String)
 data class SupportNftMineResponseDto(val project_ids: List<String>)
+data class CherryEmbedTokenDto(val token: String, val wallet_address: String)
 
 // ── API Interface ──────────────────────────────────────────────────────────
 
@@ -202,4 +203,7 @@ interface SeekerApi {
 
     @GET("support-nft/mine")
     suspend fun getSupportNftsMine(@Query("hackathon_id") hackathonId: String): SupportNftMineResponseDto
+
+    @POST("cherry-embed-token")
+    suspend fun createCherryEmbedToken(): CherryEmbedTokenDto
 }

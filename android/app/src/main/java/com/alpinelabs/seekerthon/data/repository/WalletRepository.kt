@@ -144,6 +144,41 @@ class WalletRepository @Inject constructor(
         }
     }
 
+    suspend fun signCherryChallenge(
+        sender: ActivityResultSender,
+        messageBytes: ByteArray,
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val adapter = newAdapter()
+
+            val publicKeyBytes = when (val r = adapter.transact(sender) { authResult ->
+                authResult.accounts.first().publicKey
+            }) {
+                is TransactionResult.Success -> r.payload
+                is TransactionResult.Failure -> throw Exception("Authorization failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+
+            val signature = when (val r = adapter.transact(sender) { _ ->
+                signMessagesDetached(
+                    messages = arrayOf(messageBytes),
+                    addresses = arrayOf(publicKeyBytes),
+                )
+            }) {
+                is TransactionResult.Success -> r.payload.messages.first().signatures.first()
+                    ?: throw Exception("Wallet returned null signature")
+                is TransactionResult.Failure -> throw Exception("Signing failed: ${r.message}")
+                is TransactionResult.NoWalletFound -> throw Exception("No Solana wallet found on device")
+            }
+
+            when {
+                signature.size == 64 -> signature
+                signature.size > 64 -> signature.takeLast(64).toByteArray()
+                else -> throw Exception("Wallet returned an invalid signature")
+            }
+        }
+    }
+
     suspend fun signAndSendTransaction(
         sender: ActivityResultSender,
         transactionB64: String,
