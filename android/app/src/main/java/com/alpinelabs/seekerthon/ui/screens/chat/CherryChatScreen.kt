@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -182,6 +183,7 @@ private fun CherryChatWebView(
 ) {
     val context = LocalContext.current
     var isLoading by remember { mutableStateOf(true) }
+    var webError by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -211,7 +213,19 @@ private fun CherryChatWebView(
                         "CherryNative",
                     )
 
-                    webChromeClient = WebChromeClient()
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            val message = consoleMessage.message()
+                            if (
+                                consoleMessage.messageLevel() == ConsoleMessage.MessageLevel.ERROR ||
+                                message.contains("Cherry", ignoreCase = true) ||
+                                message.contains("cherry", ignoreCase = true)
+                            ) {
+                                webError = message
+                            }
+                            return true
+                        }
+                    }
                     webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
                             view: WebView,
@@ -237,6 +251,7 @@ private fun CherryChatWebView(
 
                         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                             isLoading = true
+                            webError = null
                             onCanGoBackChanged(view.canGoBack())
                         }
 
@@ -254,7 +269,21 @@ private fun CherryChatWebView(
 
         if (isLoading) {
             LoadingState()
+        } else if (webError != null) {
+            WebErrorOverlay(message = webError!!)
         }
+    }
+}
+
+@Composable
+private fun WebErrorOverlay(message: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
