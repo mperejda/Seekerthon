@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import javax.inject.Inject
@@ -16,7 +17,6 @@ data class CherryChatUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val token: String? = null,
-    val walletAddress: String? = null,
     val sessionExpired: Boolean = false,
 )
 
@@ -26,21 +26,22 @@ class CherryChatViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(CherryChatUiState())
     val state: StateFlow<CherryChatUiState> = _state.asStateFlow()
+    private var tokenJob: Job? = null
 
     init {
         loadToken()
     }
 
     fun loadToken() {
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+        if (tokenJob?.isActive == true) return
+        tokenJob = viewModelScope.launch {
+            _state.update { it.copy(isLoading = it.token == null, error = null) }
             runCatching { api.createCherryEmbedToken() }
                 .onSuccess { response ->
                     _state.update {
                         it.copy(
                             isLoading = false,
                             token = response.token,
-                            walletAddress = response.wallet_address,
                             sessionExpired = false,
                         )
                     }

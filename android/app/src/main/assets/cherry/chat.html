@@ -2,235 +2,185 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  >
   <title>Seekerthon Chat</title>
+  <script src="cherry-embed-0.1.6.js"></script>
   <style>
     html,
-    body,
-    #chat {
+    body {
       width: 100%;
       height: 100%;
-      min-height: 100vh;
       margin: 0;
       padding: 0;
-      background: #0a0a12;
-      color: #ffffff;
       overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0a0a12;
     }
 
-    iframe {
-      display: block !important;
-      width: 100% !important;
-      height: 100% !important;
-      min-height: 100vh !important;
-      background: #14141f;
-    }
-
-    .status {
+    #chat {
+      position: fixed;
+      inset: 0;
+      width: 100%;
       height: 100%;
+      background: #0a0a12;
+    }
+
+    #status {
+      position: fixed;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
       padding: 24px;
-      text-align: center;
       color: #afa9ec;
-      font-size: 14px;
-      line-height: 1.4;
+      font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <div id="chat">
-    <div class="status">Loading chat...</div>
-  </div>
+  <div id="chat"></div>
+  <div id="status">Loading chat...</div>
+
   <script>
     (function () {
-      const sdkUrls = [
-        "https://embed.cherry.fun/cherry-embed.js",
-        "https://cdn.jsdelivr.net/npm/@cherrydotfun/chat-embed-sdk@0.1.6/dist/index.global.js"
-      ];
-      const params = new URLSearchParams(window.location.search);
-      const appId = params.get("appId");
-      const roomId = params.get("roomId");
-      const token = params.get("token");
-      const embedUrl = params.get("embedUrl") || "https://embed.cherry.fun";
-      const viewportHeight = Number(params.get("viewportHeight") || "0");
-      const container = document.getElementById("chat");
-      let readyTimer = null;
+      var chat = null;
+      var currentConfig = null;
+      var status = document.getElementById("status");
 
-      function viewportPx() {
-        const height = Math.max(
-          viewportHeight,
-          window.innerHeight || 0,
-          document.documentElement.clientHeight || 0,
-          window.screen && window.screen.height ? window.screen.height : 0,
-          600
-        );
-        return Math.round(height) + "px";
-      }
-
-      function forceViewportHeight() {
-        const height = viewportPx();
-        document.documentElement.style.height = height;
-        document.documentElement.style.minHeight = height;
-        document.body.style.height = height;
-        document.body.style.minHeight = height;
-        container.style.height = height;
-        container.style.minHeight = height;
-        const iframe = container.querySelector("iframe");
-        if (iframe) {
-          iframe.style.height = height;
-          iframe.style.minHeight = height;
+      function toNative(message) {
+        if (window.CherryNative && window.CherryNative.postMessage) {
+          window.CherryNative.postMessage(JSON.stringify(message));
         }
       }
-
-      window.__cherryForceHeight = function (heightPx) {
-        const height = Math.max(
-          window.innerHeight || 0,
-          document.documentElement.clientHeight || 0,
-          window.screen && window.screen.height ? window.screen.height : 0,
-          Number(heightPx) || 0,
-          600
-        );
-        document.documentElement.style.height = Math.round(height) + "px";
-        document.documentElement.style.minHeight = Math.round(height) + "px";
-        document.body.style.height = Math.round(height) + "px";
-        document.body.style.minHeight = Math.round(height) + "px";
-        container.style.height = Math.round(height) + "px";
-        container.style.minHeight = Math.round(height) + "px";
-        const iframe = container.querySelector("iframe");
-        if (iframe) {
-          iframe.style.height = Math.round(height) + "px";
-          iframe.style.minHeight = Math.round(height) + "px";
-        }
-        reportDom("forced-height");
-      };
 
       function showStatus(message) {
-        if (readyTimer) {
-          clearTimeout(readyTimer);
-          readyTimer = null;
-        }
-        forceViewportHeight();
-        container.innerHTML = "";
-        const status = document.createElement("div");
-        status.className = "status";
         status.textContent = message;
-        container.appendChild(status);
+        status.style.display = "flex";
       }
 
-      function loadScript(index, onReady) {
-        if (index >= sdkUrls.length) {
-          showStatus("Cherry chat failed to load. Check your connection and try again.");
+      function hideStatus() {
+        status.style.display = "none";
+      }
+
+      function emitError(code, error) {
+        var message = error && error.message ? error.message : String(error);
+        showStatus("Cherry chat could not load. Please try again.");
+        toNative({ type: "event", event: "error", data: { code: code, message: message } });
+      }
+
+      function sameEmbed(a, b) {
+        return a && b &&
+          a.appId === b.appId &&
+          a.roomId === b.roomId &&
+          a.mode === b.mode &&
+          a.embedUrl === b.embedUrl;
+      }
+
+      function mount(config) {
+        var sdk = window.CherryEmbedSDK;
+        if (!sdk || !sdk.CherryEmbed) {
+          emitError("SDK_NOT_LOADED", new Error("Cherry SDK 0.1.6 did not load"));
           return;
         }
 
-        const script = document.createElement("script");
-        script.src = sdkUrls[index];
-        script.async = true;
-        script.onload = onReady;
-        script.onerror = function () {
-          loadScript(index + 1, onReady);
-        };
-        document.body.appendChild(script);
+        if (!config.appId || !config.roomId || !config.token) {
+          emitError("BAD_CONFIG", new Error("Missing appId, roomId, or token"));
+          return;
+        }
+
+        hideStatus();
+        document.getElementById("chat").replaceChildren();
+
+        chat = new sdk.CherryEmbed({
+          appId: config.appId,
+          container: "#chat",
+          roomId: config.roomId,
+          mode: config.mode || "single",
+          position: "inline",
+          token: config.token,
+          embedUrl: config.embedUrl || "https://embed.cherry.fun",
+          theme: config.theme,
+          layout: config.layout
+        });
+        currentConfig = config;
+
+        [
+          "ready",
+          "authStateChange",
+          "unreadCount",
+          "message",
+          "tokenExpired",
+          "preview",
+          "roomChanged"
+        ].forEach(function (event) {
+          chat.on(event, function (data) {
+            toNative({ type: "event", event: event, data: data });
+          });
+        });
+
+        chat.on("error", function (error) {
+          toNative({ type: "event", event: "error", data: error });
+        });
+
+        chat.mount().then(function () {
+          hideStatus();
+          toNative({ type: "event", event: "mounted" });
+        }).catch(function (error) {
+          emitError("MOUNT_FAILED", error);
+        });
       }
 
-      window.__cherryUpdateAuth = function (freshToken) {
-        if (!window.__cherryChat) return;
-        window.__cherryChat.setToken(freshToken);
+      window.__cherryReceiveConfig = function (configJson) {
+        var config;
+        try {
+          config = JSON.parse(configJson);
+        } catch (error) {
+          emitError("BAD_CONFIG", error);
+          return;
+        }
+
+        if (chat && sameEmbed(currentConfig, config)) {
+          if (config.token && config.token !== currentConfig.token) {
+            chat.setToken(config.token);
+          }
+          if (config.theme) chat.setTheme(config.theme);
+          if (config.layout) chat.setLayout(config.layout);
+          currentConfig = config;
+          return;
+        }
+
+        if (chat) {
+          try { chat.destroy(); } catch (_) {}
+          chat = null;
+        }
+        mount(config);
       };
 
-      function emitNative(event, data) {
-        if (!window.CherryNative || !window.CherryNative.onCherryEvent) return;
-        window.CherryNative.onCherryEvent(JSON.stringify({ event: event, data: data }));
-      }
-
-      function reportDom(label) {
-        forceViewportHeight();
-        const iframe = container.querySelector("iframe");
-        const rect = iframe ? iframe.getBoundingClientRect() : null;
-        emitNative("dom", {
-          label: label,
-          childCount: container.children.length,
-          body: { width: document.body.clientWidth, height: document.body.clientHeight },
-          chat: { width: container.clientWidth, height: container.clientHeight },
-          iframe: rect ? {
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-            top: Math.round(rect.top),
-            left: Math.round(rect.left),
-            src: iframe.src
-          } : null
+      window.addEventListener("error", function (event) {
+        toNative({
+          type: "event",
+          event: "error",
+          data: { code: "HOST_ERROR", message: event.message || "Host page error" }
         });
-      }
+      });
 
-      if (!appId || !roomId || !token) {
-        showStatus("Cherry chat is not configured for this build.");
-        return;
-      }
-
-      function mountCherry() {
-        forceViewportHeight();
-        emitNative("mounting", { appId: appId, roomId: roomId });
-        const sdk = window.CherryEmbedSDK;
-        if (!sdk || !sdk.CherryEmbed) {
-          loadScript(1, mountCherry);
-          return;
-        }
-
-        container.innerHTML = "";
-        const chat = new sdk.CherryEmbed({
-          appId: appId,
-          embedUrl: embedUrl,
-          roomId: roomId,
-          mode: "single",
-          token: token,
-          container: "#chat",
-          theme: { mode: "dark", primaryColor: "#FF5BA8" },
-          layout: {
-            showHeader: true,
-            headerTitle: "Seekerthon Chat",
-            showMemberCount: true,
-            showInput: true
+      window.addEventListener("unhandledrejection", function (event) {
+        var reason = event.reason;
+        toNative({
+          type: "event",
+          event: "error",
+          data: {
+            code: "HOST_REJECTION",
+            message: reason && reason.message ? reason.message : String(reason)
           }
         });
-        window.__cherryChat = chat;
-        forceViewportHeight();
-        chat.on("ready", function () {
-          if (readyTimer) {
-            clearTimeout(readyTimer);
-            readyTimer = null;
-          }
-          emitNative("ready", null);
-          reportDom("ready");
-        });
-        chat.on("authStateChange", function (ok) {
-          emitNative("authStateChange", ok);
-          reportDom("auth");
-          setTimeout(function () { reportDom("auth+2s"); }, 2000);
-        });
-        chat.on("preview", function (state) { emitNative("preview", state); });
-        chat.on("walletConnectRequested", function () {
-          emitNative("walletConnectRequested", null);
-        });
-        chat.on("error", function (error) { emitNative("error", error); });
-        readyTimer = setTimeout(function () {
-          showStatus("Cherry chat did not finish loading. Confirm the embed is enabled and https://appassets.androidplatform.net is in Cherry's allowed origins.");
-        }, 15000);
-        chat.mount().catch(function (error) {
-          showStatus(error && error.message ? error.message : "Cherry chat failed to mount.");
-        });
-      }
+      });
 
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", function () {
-          loadScript(0, mountCherry);
-        });
-      } else {
-        loadScript(0, mountCherry);
-      }
+      toNative({ type: "ready" });
     })();
   </script>
 </body>
