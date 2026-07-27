@@ -1339,7 +1339,9 @@ async def verify_builder_pass_holder(wallet_address: str) -> bool:
             result = resp.get("result")
             if not isinstance(result, dict) or not isinstance(result.get("items"), list):
                 raise RuntimeError("Helius DAS search returned a malformed result")
-            return bool(result["items"])
+            if result["items"]:
+                return True
+            # DAS returned empty — fall through to RPC to confirm.
         except Exception as exc:
             _log.warning(
                 "Helius DAS Builder Pass lookup failed for wallet %s; using RPC fallback (%s)",
@@ -1536,7 +1538,10 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
             result = resp.get("result")
             if not isinstance(result, dict) or not isinstance(result.get("items"), list):
                 raise RuntimeError("Helius DAS search returned a malformed result")
-            return bool(result["items"])
+            if result["items"]:
+                return True
+            # DAS returned empty — fall through to RPC to confirm, since the
+            # collection grouping index may not cover all Genesis NFT variants.
         except Exception as exc:
             _log.warning(
                 "Helius DAS Genesis lookup failed for wallet %s; using RPC fallback (%s)",
