@@ -1323,6 +1323,29 @@ async def verify_builder_pass_holder(wallet_address: str) -> bool:
     collection = _settings.builder_pass_collection_mint
     if not collection:
         return False
+    if "helius-rpc.com" in MAINNET_RPC_URL.lower():
+        try:
+            resp = await _rpc_post(
+                "searchAssets",
+                {
+                    "ownerAddress": wallet_address,
+                    "tokenType": "all",
+                    "grouping": ["collection", collection],
+                    "limit": 1,
+                    "options": {"showUnverifiedCollections": True},
+                },
+                rpc_url=MAINNET_RPC_URL,
+            )
+            result = resp.get("result")
+            if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+                raise RuntimeError("Helius DAS search returned a malformed result")
+            return bool(result["items"])
+        except Exception as exc:
+            _log.warning(
+                "Helius DAS Builder Pass lookup failed for wallet %s; using RPC fallback (%s)",
+                wallet_address,
+                type(exc).__name__,
+            )
     for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
         resp = await _rpc_post(
             "getTokenAccountsByOwner",
