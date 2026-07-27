@@ -23,13 +23,22 @@ class LoginViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LoginUiState(
-        isAuthenticated = walletRepo.isLoggedIn()
+        isAuthenticated = walletRepo.isLoggedIn() && walletRepo.hasAcceptedCurrentTerms()
     ))
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
-    fun connect(sender: ActivityResultSender) {
+    fun connect(sender: ActivityResultSender, termsAccepted: Boolean) {
         viewModelScope.launch {
+            if (!termsAccepted) {
+                _state.value = LoginUiState(error = "Accept the Terms of Use and Privacy Policy to continue.")
+                return@launch
+            }
             _state.value = LoginUiState(isLoading = true)
+            walletRepo.acceptCurrentTerms()
+            if (walletRepo.isLoggedIn()) {
+                _state.value = LoginUiState(isAuthenticated = true)
+                return@launch
+            }
             val result = walletRepo.connectAndLogin(sender)
             result.fold(
                 onSuccess = {

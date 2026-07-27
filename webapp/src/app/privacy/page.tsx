@@ -2,7 +2,7 @@ export default function PrivacyPolicyPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Privacy Policy</h1>
-      <p className="text-sm text-gray-500 mb-10">Effective date: June 4, 2025</p>
+      <p className="text-sm text-gray-500 mb-10">Effective date: July 26, 2026</p>
 
       <div className="space-y-8 text-gray-700 leading-relaxed">
         <section>
@@ -22,6 +22,7 @@ export default function PrivacyPolicyPage() {
           <ul className="list-disc ml-6 space-y-1">
             <li>Hackathon titles and descriptions (if you create a hackathon)</li>
             <li>Project names, descriptions, and links (if you submit a project)</li>
+            <li>Messages, reactions, and other content you post in the community chat</li>
           </ul>
 
           <h3 className="font-semibold text-gray-800 mt-4 mb-2">Wallet information</h3>
@@ -52,6 +53,7 @@ export default function PrivacyPolicyPage() {
             <li>Operate the App and provide its features</li>
             <li>Display hackathons, projects, and voting results</li>
             <li>Associate wallet addresses with votes and project submissions</li>
+            <li>Provide and moderate the community chat</li>
             <li>Debug and improve the App</li>
           </ul>
           <p className="mt-3">
@@ -67,6 +69,11 @@ export default function PrivacyPolicyPage() {
             Railway. Wallet addresses associated with your activity are stored to power the App&rsquo;s
             features. We retain this data for as long as necessary to operate the App.
           </p>
+          <p className="mt-3">
+            Community chat content is processed and stored by Cherry under its own terms and privacy
+            practices. When you use chat, your public wallet identity and messages are shared with Cherry
+            to provide that feature.
+          </p>
         </section>
 
         <section>
@@ -76,6 +83,8 @@ export default function PrivacyPolicyPage() {
             <li><strong>Solana blockchain</strong> — for on-chain transactions and escrow</li>
             <li><strong>Mobile Wallet Adapter</strong> — for connecting your Solana wallet on Android</li>
             <li><strong>Railway</strong> — backend hosting</li>
+            <li><strong>Cherry</strong> — community chat, message delivery, storage, and moderation</li>
+            <li><strong>Firebase Cloud Messaging</strong> — Android push notifications</li>
           </ul>
           <p className="mt-3">
             These services have their own privacy policies. We are not responsible for their

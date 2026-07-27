@@ -15,6 +15,8 @@ class TokenProvider @Inject constructor(
 ) {
     companion object {
         private val TOKEN_KEY = stringPreferencesKey("jwt_token")
+        private val TERMS_VERSION_KEY = stringPreferencesKey("terms_version")
+        private const val CURRENT_TERMS_VERSION = "2026-07-26"
     }
 
     fun getToken(): String? = runBlocking {
@@ -27,5 +29,13 @@ class TokenProvider @Inject constructor(
 
     suspend fun clearToken() {
         dataStore.edit { it.remove(TOKEN_KEY) }
+    }
+
+    fun hasAcceptedCurrentTerms(): Boolean = runBlocking {
+        dataStore.data.first()[TERMS_VERSION_KEY] == CURRENT_TERMS_VERSION
+    }
+
+    suspend fun acceptCurrentTerms() {
+        dataStore.edit { it[TERMS_VERSION_KEY] = CURRENT_TERMS_VERSION }
     }
 }

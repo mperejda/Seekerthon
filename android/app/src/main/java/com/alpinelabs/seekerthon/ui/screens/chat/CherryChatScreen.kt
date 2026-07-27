@@ -95,8 +95,14 @@ fun CherryChatScreen(
     }
 
     fun reloadChat() {
-        viewModel.loadToken()
-        webView?.reload()
+        viewModel.reloadWithFreshToken()
+    }
+
+    LaunchedEffect(state.reloadRequested, webView) {
+        if (state.reloadRequested && webView != null) {
+            webView?.reload()
+            viewModel.consumeReloadRequest()
+        }
     }
 
     Scaffold(

@@ -2,7 +2,7 @@ export default function TermsOfUsePage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms of Use</h1>
-      <p className="text-sm text-gray-500 mb-10">Effective date: June 4, 2025</p>
+      <p className="text-sm text-gray-500 mb-10">Effective date: July 26, 2026</p>
 
       <div className="space-y-8 text-gray-700 leading-relaxed">
         <section>
@@ -11,7 +11,7 @@ export default function TermsOfUsePage() {
             By accessing or using Seekerthon (the &ldquo;App&rdquo;), you agree to be bound by these Terms of Use.
             If you do not agree to these terms, do not use the App. Seekerthon is a hackathon platform
             built on the Solana blockchain that allows organizers to create hackathons with USDC prize
-            pools and allows participants to submit projects and vote.
+            pools, allows participants to submit projects and vote, and provides a community chat.
           </p>
           <p className="mt-3">
             Seekerthon was created by Matt Perejda and is published and distributed by Alpine Labs LLC,
@@ -72,11 +72,28 @@ export default function TermsOfUsePage() {
             <li>Attempt to compromise the security of the App or its smart contracts</li>
             <li>Use the App for any unlawful purpose</li>
             <li>Impersonate any person or entity</li>
+            <li>Post violent, sexually explicit, hateful, harassing, abusive, or otherwise unlawful content</li>
+            <li>Promote self-harm, dangerous activity, false health claims, fraud, spam, or misleading content</li>
           </ul>
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Disclaimer of Warranties</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Community Chat and User Content</h2>
+          <p>
+            The community chat is provided through Cherry. You are responsible for messages and other
+            content you post. You retain ownership of your content, but grant Seekerthon and its service
+            providers the rights needed to transmit, display, moderate, and store it as part of the service.
+          </p>
+          <p className="mt-3">
+            Use the reporting controls available in the chat for inappropriate content or users. We may
+            review, restrict, or remove content and suspend access when needed to enforce
+            these Terms, protect users, or comply with law. You may also report concerns to the contact
+            address below.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Disclaimer of Warranties</h2>
           <p>
             The App is provided &ldquo;as is&rdquo; without warranty of any kind. Seekerthon does not warrant
             that the App will be uninterrupted, error-free, or free of security vulnerabilities.
@@ -86,7 +103,7 @@ export default function TermsOfUsePage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Limitation of Liability</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">9. Limitation of Liability</h2>
           <p>
             To the maximum extent permitted by law, Alpine Labs LLC and its members shall not be liable
             for any indirect, incidental, special, consequential, or punitive damages, including loss
@@ -95,7 +112,7 @@ export default function TermsOfUsePage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">9. Changes to Terms</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">10. Changes to Terms</h2>
           <p>
             We may update these Terms of Use from time to time. Continued use of the App after
             changes constitutes acceptance of the revised terms.
@@ -103,7 +120,7 @@ export default function TermsOfUsePage() {
         </section>
 
         <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">10. Contact</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">11. Contact</h2>
           <p>
             For questions about these Terms, contact us at{" "}
             <a href="mailto:matt.perejda@gmail.com" className="text-purple-600 hover:underline">

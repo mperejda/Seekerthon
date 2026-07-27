@@ -202,6 +202,8 @@ class WalletRepository @Inject constructor(
 
     suspend fun logout() { tokenProvider.clearToken() }
     fun isLoggedIn(): Boolean = tokenProvider.getToken() != null
+    fun hasAcceptedCurrentTerms(): Boolean = tokenProvider.hasAcceptedCurrentTerms()
+    suspend fun acceptCurrentTerms() = tokenProvider.acceptCurrentTerms()
 }
 
 private fun ByteArray.encodeBase58(): String {

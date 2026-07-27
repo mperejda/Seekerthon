@@ -1,11 +1,16 @@
 package com.alpinelabs.seekerthon.ui.screens.login
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -20,6 +25,8 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val activityResultSender = LocalActivityResultSender.current
+    val context = LocalContext.current
+    var termsAccepted by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.isAuthenticated) {
         if (state.isAuthenticated) onLoginSuccess()
@@ -83,9 +90,40 @@ fun LoginScreen(
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = termsAccepted,
+                    onCheckedChange = { termsAccepted = it },
+                )
+                Column {
+                    Text("I agree to the", fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Terms of Use",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.seekerthon.com/terms")))
+                            },
+                        )
+                        Text(
+                            "Privacy Policy",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.seekerthon.com/privacy")))
+                            },
+                        )
+                    }
+                }
+            }
+
             Button(
-                onClick = { viewModel.connect(activityResultSender) },
-                enabled = !state.isLoading,
+                onClick = { viewModel.connect(activityResultSender, termsAccepted) },
+                enabled = !state.isLoading && termsAccepted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),

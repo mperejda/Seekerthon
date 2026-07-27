@@ -18,6 +18,7 @@ data class CherryChatUiState(
     val error: String? = null,
     val token: String? = null,
     val sessionExpired: Boolean = false,
+    val reloadRequested: Boolean = false,
 )
 
 @HiltViewModel
@@ -32,7 +33,15 @@ class CherryChatViewModel @Inject constructor(
         loadToken()
     }
 
-    fun loadToken() {
+    fun loadToken() = requestToken(reloadOnSuccess = false)
+
+    fun reloadWithFreshToken() = requestToken(reloadOnSuccess = true)
+
+    fun consumeReloadRequest() {
+        _state.update { it.copy(reloadRequested = false) }
+    }
+
+    private fun requestToken(reloadOnSuccess: Boolean) {
         if (tokenJob?.isActive == true) return
         tokenJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = it.token == null, error = null) }
@@ -43,6 +52,7 @@ class CherryChatViewModel @Inject constructor(
                             isLoading = false,
                             token = response.token,
                             sessionExpired = false,
+                            reloadRequested = reloadOnSuccess,
                         )
                     }
                 }
