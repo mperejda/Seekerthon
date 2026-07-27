@@ -3,7 +3,11 @@ import base64
 import pytest
 
 from app.services import solana_service
-from app.services.solana_service import SkrBalances, get_skr_balance
+from app.services.solana_service import (
+    SkrBalances,
+    get_skr_balance,
+    verify_seeker_genesis_holder,
+)
 
 
 WALLET = "11111111111111111111111111111111"
@@ -124,3 +128,55 @@ def test_cached_whole_balance_has_stable_display_value():
 
     assert balances.liquid_display == "544"
     assert balances.staked_display == "14569"
+
+
+@pytest.mark.asyncio
+async def test_genesis_holder_uses_single_helius_asset_search(monkeypatch):
+    calls = []
+
+    async def fake_rpc(method, params, rpc_url):
+        calls.append((method, params, rpc_url))
+        return {"result": {"items": [{"id": "genesis-asset"}]}}
+
+    monkeypatch.setattr(
+        solana_service,
+        "MAINNET_RPC_URL",
+        "https://mainnet.helius-rpc.com/?api-key=test",
+    )
+    monkeypatch.setattr(solana_service, "_rpc_post", fake_rpc)
+
+    assert await verify_seeker_genesis_holder(WALLET) is True
+    assert len(calls) == 1
+    assert calls[0][0] == "searchAssets"
+    assert calls[0][1]["ownerAddress"] == WALLET
+    assert calls[0][1]["grouping"] == [
+        "collection",
+        solana_service.GENESIS_COLLECTION,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_genesis_holder_falls_back_when_helius_search_fails(monkeypatch):
+    methods = []
+
+    async def fake_rpc(method, params, rpc_url):
+        methods.append(method)
+        if method == "searchAssets":
+            raise RuntimeError("DAS unavailable")
+        if method == "getTokenAccountsByOwner":
+            return {"result": {"value": []}}
+        raise AssertionError(f"Unexpected RPC method: {method}")
+
+    monkeypatch.setattr(
+        solana_service,
+        "MAINNET_RPC_URL",
+        "https://mainnet.helius-rpc.com/?api-key=test",
+    )
+    monkeypatch.setattr(solana_service, "_rpc_post", fake_rpc)
+
+    assert await verify_seeker_genesis_holder(WALLET) is False
+    assert methods == [
+        "searchAssets",
+        "getTokenAccountsByOwner",
+        "getTokenAccountsByOwner",
+    ]

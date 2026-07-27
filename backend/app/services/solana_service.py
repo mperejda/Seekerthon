@@ -287,7 +287,7 @@ def _has_program_instruction(
     return False
 
 
-async def _rpc_post(method: str, params: list, rpc_url: str = RPC_URL) -> dict:
+async def _rpc_post(method: str, params: list | dict, rpc_url: str = RPC_URL) -> dict:
     for attempt in range(3):
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
@@ -1493,7 +1493,35 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
     Verifies that the wallet holds at least one Seeker Genesis NFT.
     Always checks mainnet. Queries both SPL Token and Token-2022 programs.
     """
-    _log.info("Genesis check starting for wallet %s (configured collection: %s)", wallet_address, GENESIS_COLLECTION)
+    # Helius DAS can filter a wallet by collection in one indexed request. The
+    # previous implementation fetched every token account and then made up to
+    # three RPC calls for every NFT, which regularly exceeded the login timeout
+    # for wallets with many assets.
+    if "helius-rpc.com" in MAINNET_RPC_URL.lower():
+        try:
+            resp = await _rpc_post(
+                "searchAssets",
+                {
+                    "ownerAddress": wallet_address,
+                    "tokenType": "all",
+                    "grouping": ["collection", GENESIS_COLLECTION],
+                    "limit": 1,
+                    "options": {"showUnverifiedCollections": True},
+                },
+                rpc_url=MAINNET_RPC_URL,
+            )
+            result = resp.get("result")
+            if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+                raise RuntimeError("Helius DAS search returned a malformed result")
+            return bool(result["items"])
+        except Exception as exc:
+            _log.warning(
+                "Helius DAS Genesis lookup failed for wallet %s; using RPC fallback (%s)",
+                wallet_address,
+                type(exc).__name__,
+            )
+
+    _log.debug("Genesis RPC fallback starting for wallet %s", wallet_address)
     for token_program in (TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID):
         resp = await _rpc_post(
             "getTokenAccountsByOwner",
@@ -1505,15 +1533,13 @@ async def verify_seeker_genesis_holder(wallet_address: str) -> bool:
             rpc_url=MAINNET_RPC_URL,
         )
         accounts = resp.get("result", {}).get("value") or []
-        _log.info("  program=%s  token accounts found: %d", token_program, len(accounts))
+        _log.debug("Genesis fallback program=%s token_accounts=%d", token_program, len(accounts))
         for acct in accounts:
             info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
             amount = info.get("tokenAmount", {}).get("uiAmount", 0)
             mint_str = info.get("mint", "")
-            _log.info("    mint=%s  uiAmount=%s", mint_str, amount)
             if amount == 1:
                 collection_key, _verified = await _fetch_nft_collection(mint_str)
-                _log.info("    -> collection_key=%s  matches=%s", collection_key, collection_key == GENESIS_COLLECTION)
                 if collection_key == GENESIS_COLLECTION:
                     return True
     _log.warning("Genesis check FAILED for wallet %s — no matching NFT found", wallet_address)

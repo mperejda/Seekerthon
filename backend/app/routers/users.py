@@ -114,16 +114,33 @@ async def login(body: UserCreate, response: Response):
     except Exception:
         cached = {}
 
-    # Run all on-chain checks in parallel with a 5 s timeout each.
+    # Run all on-chain checks in parallel. Genesis verification is required for
+    # a first login, so allow its legacy RPC fallback more time than optional
+    # profile enrichment checks.
     # Falls back to cached DB values for returning users; 0/False for brand-new ones.
     _FAILED = object()
-    _TIMEOUT = 5.0
+    _OPTIONAL_TIMEOUT = 5.0
+    _GENESIS_TIMEOUT = 12.0
 
-    async def _timed(coro, fallback):
+    async def _timed(operation, coro, fallback, timeout=_OPTIONAL_TIMEOUT):
         try:
-            return await asyncio.wait_for(coro, timeout=_TIMEOUT)
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except TimeoutError:
+            log.warning(
+                "%s timed out after %.1fs for wallet %s",
+                operation,
+                timeout,
+                body.wallet_address,
+            )
+            return fallback
         except Exception as exc:
-            log.warning("On-chain check failed or timed out for %s: %s", body.wallet_address, exc)
+            log.warning(
+                "%s failed for wallet %s (%s): %s",
+                operation,
+                body.wallet_address,
+                type(exc).__name__,
+                exc,
+            )
             return fallback
 
     # Genesis fallback: use cached value for returning users; _FAILED for new users
@@ -140,10 +157,19 @@ async def login(body: UserCreate, response: Response):
         has_builder_pass,
         skr_id_result,
     ) = await asyncio.gather(
-        _timed(get_skr_balance(body.wallet_address), cached_balances),
-        _timed(verify_seeker_genesis_holder(body.wallet_address), genesis_fallback),
-        _timed(verify_builder_pass_holder(body.wallet_address), cached.get("has_builder_pass", False)),
-        _timed(get_skr_id(body.wallet_address), _FAILED),
+        _timed("SKR balance lookup", get_skr_balance(body.wallet_address), cached_balances),
+        _timed(
+            "Seeker Genesis verification",
+            verify_seeker_genesis_holder(body.wallet_address),
+            genesis_fallback,
+            _GENESIS_TIMEOUT,
+        ),
+        _timed(
+            "Builder Pass verification",
+            verify_builder_pass_holder(body.wallet_address),
+            cached.get("has_builder_pass", False),
+        ),
+        _timed("Seeker ID lookup", get_skr_id(body.wallet_address), _FAILED),
     )
 
     if is_seeker_verified is _FAILED:
