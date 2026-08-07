@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.alpinelabs.seekerthon.BuildConfig
 import com.alpinelabs.seekerthon.domain.model.Hackathon
 import com.alpinelabs.seekerthon.ui.LocalActivityResultSender
 import java.math.BigDecimal
@@ -61,7 +62,16 @@ fun HackathonListScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Seekerthon") },
+            title = {
+                Column {
+                    Text("Seekerthon")
+                    Text(
+                        "v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
             actions = {
                 IconButton(onClick = onChatClick) {
                     Icon(Icons.Outlined.Chat, contentDescription = "Chat")
