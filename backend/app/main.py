@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from app.routers import cherry, hackathons, mint, newsletter, projects, registrations, support_nft, votes, users
 from app.middleware.auth import AuthMiddleware
 from app.config import get_settings
@@ -52,6 +53,11 @@ api.include_router(cherry.router, prefix="/api/v1", tags=["cherry"])
 @api.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@api.get("/icon.png")
+async def app_icon():
+    return FileResponse("app/static/icon.png", media_type="image/png")
 
 
 app = CORSMiddleware(
