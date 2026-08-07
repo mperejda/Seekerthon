@@ -31,7 +31,7 @@ class WalletRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val identityUri = Uri.parse("https://seekerthon.com")
-    private val iconUri = Uri.parse("favicon.ico")
+    private val iconUri = Uri.parse("icon.png")
     private val appName = "Seekerthon"
 
     @Suppress("DEPRECATION")

@@ -5,6 +5,9 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "Seekerthon",
   description: "TikTok-style hackathon voting for Seeker users",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
