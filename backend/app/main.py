@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +58,8 @@ async def health():
 
 @api.get("/icon.png")
 async def app_icon():
-    return FileResponse("app/static/icon.png", media_type="image/png")
+    path = os.path.join(os.path.dirname(__file__), "static", "icon.png")
+    return FileResponse(path, media_type="image/png")
 
 
 app = CORSMiddleware(
