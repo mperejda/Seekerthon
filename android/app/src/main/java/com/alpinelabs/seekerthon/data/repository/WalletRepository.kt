@@ -30,7 +30,9 @@ class WalletRepository @Inject constructor(
     private val tokenProvider: TokenProvider,
     @ApplicationContext private val context: Context,
 ) {
-    private val identityUri = Uri.parse("https://seekerthon.com")
+    // MWA requires iconUri to be relative and resolves it against identityUri.
+    // The app host serves /icon.png; the marketing site does not.
+    private val identityUri = Uri.parse("https://app.seekerthon.com")
     private val iconUri = Uri.parse("icon.png")
     private val appName = "Seekerthon"
 
