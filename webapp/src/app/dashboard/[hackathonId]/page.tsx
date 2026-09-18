@@ -44,6 +44,7 @@ interface Project {
   description: string;
   demo_url: string | null;
   repo_url: string | null;
+  seekertracker_link: string | null;
   tech_stack: string[];
   vote_count: number;
   status: string;
@@ -275,6 +276,7 @@ export default function ResultsDashboard({ params }: { params: Promise<{ hackath
                   <div className="flex gap-4 mt-3">
                     {project.demo_url && <a href={project.demo_url} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">Demo</a>}
                     {project.repo_url && <a href={project.repo_url} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">Repo</a>}
+                    {project.seekertracker_link && <a href={project.seekertracker_link} target="_blank" rel="noopener noreferrer" className="text-purple-600 text-sm hover:underline">SeekerTracker</a>}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
