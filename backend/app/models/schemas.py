@@ -238,6 +238,7 @@ class ProjectResponse(BaseModel):
     description: str
     demo_url: Optional[str] = None
     repo_url: Optional[str] = None
+    seekertracker_link: Optional[str] = None
     tech_stack: List[str] = []
     storage_asset_ids: List[str] = []
     video_url: Optional[str] = None
