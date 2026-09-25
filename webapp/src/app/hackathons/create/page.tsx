@@ -196,7 +196,7 @@ export default function CreateHackathonPage() {
       {publicKey && user === null && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
           <p className="font-medium">Wallet sign-in failed</p>
-          <p className="mt-1">A Seeker Genesis Token is required. If you have one, use the wallet button to disconnect and reconnect to try again.</p>
+          <p className="mt-1">Try disconnecting and reconnecting your wallet. If the problem persists, check the browser console for details.</p>
         </div>
       )}
 

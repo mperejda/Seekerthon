@@ -143,9 +143,9 @@ async def login(body: UserCreate, response: Response):
             )
             return fallback
 
-    # Genesis fallback: use cached value for returning users; _FAILED for new users
-    # so a timeout doesn't silently block a legitimate SGT holder on first login.
-    genesis_fallback = cached.get("is_seeker_verified", _FAILED)
+    # Genesis fallback: use cached value (False for brand-new users). SGT is
+    # checked per-action in votes.py, not at login — any wallet can sign in.
+    genesis_fallback = cached.get("is_seeker_verified", False)
     cached_balances = SkrBalances.from_whole(
         cached.get("skr_balance", 0),
         cached.get("skr_staked", 0),
@@ -173,9 +173,7 @@ async def login(body: UserCreate, response: Response):
     )
 
     if is_seeker_verified is _FAILED:
-        raise HTTPException(status_code=503, detail="Seeker Genesis Token verification is temporarily unavailable due to high demand. Please try again in a moment.")
-    if not is_seeker_verified:
-        raise HTTPException(status_code=403, detail="A Seeker Genesis Token is required to sign in.")
+        is_seeker_verified = genesis_fallback
 
     # Only on-chain staked SKR contributes to vote weight — liquid balance does not.
     skr_balance = skr_balances.liquid_whole
