@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 import dynamic from "next/dynamic";
+import { useUser } from "../../providers";
 
 const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
@@ -21,6 +22,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 export default function CreateHackathonPage() {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
+  const user = useUser();
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -185,6 +187,19 @@ export default function CreateHackathonPage() {
         </div>
       )}
 
+      {publicKey && user === undefined && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
+          Signing in to Seekerthon — please approve the signature request in your wallet…
+        </div>
+      )}
+
+      {publicKey && user === null && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
+          <p className="font-medium">Wallet sign-in failed</p>
+          <p className="mt-1">A Seeker Genesis Token is required. If you have one, use the wallet button to disconnect and reconnect to try again.</p>
+        </div>
+      )}
+
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm whitespace-pre-wrap font-mono">
           {error}
@@ -263,7 +278,7 @@ export default function CreateHackathonPage() {
 
         <button
           type="submit"
-          disabled={!publicKey || !signTransaction || loading || !!activeHackathon}
+          disabled={!publicKey || !signTransaction || !user || loading || !!activeHackathon}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading && step

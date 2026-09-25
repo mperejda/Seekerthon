@@ -31,6 +31,11 @@ function encodeBase58(bytes: Uint8Array): string {
 function AuthGate({ children }: { children: ReactNode }) {
   const { publicKey, signMessage, connected } = useWallet();
   const authing = useRef(false);
+  // Tracks the last wallet address we attempted auth for. When auth fails and
+  // user becomes null, the effect would re-run (user is a dependency) and
+  // restart auth endlessly. Comparing against this ref breaks that loop — auth
+  // only retries when the wallet actually changes.
+  const lastAuthWallet = useRef<string | null>(null);
   // undefined = auth check in progress, null = confirmed no session, SeekerUser = logged in
   const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
 
@@ -49,12 +54,16 @@ function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!connected || !publicKey || !signMessage || authing.current) return;
     if (user === undefined) return; // still resolving session
-    if (user !== null && user.wallet_address === publicKey.toBase58()) return;
+    const walletAddress = publicKey.toBase58();
+    if (user !== null && user.wallet_address === walletAddress) return;
+    // Don't retry the same wallet after a failure — prevents an infinite sign
+    // loop when the user rejects the prompt or lacks a Seeker Genesis Token.
+    if (user === null && lastAuthWallet.current === walletAddress) return;
 
     authing.current = true;
+    lastAuthWallet.current = walletAddress;
     (async () => {
       try {
-        const walletAddress = publicKey.toBase58();
         const challengeRes = await fetch(`${API}/users/challenge?wallet_address=${walletAddress}`);
         const { challenge } = await challengeRes.json();
         const sig = await signMessage(new TextEncoder().encode(challenge));
@@ -64,7 +73,10 @@ function AuthGate({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ wallet_address: walletAddress, signature: encodeBase58(sig), challenge }),
         });
-        if (!loginRes.ok) throw new Error(`login failed: ${loginRes.status}`);
+        if (!loginRes.ok) {
+          const body = await loginRes.json().catch(() => null);
+          throw new Error(body?.detail ?? `Login failed (${loginRes.status})`);
+        }
         const data = await loginRes.json();
         // access_token is returned for parity with the mobile client but the
         // webapp deliberately ignores it — the cookie is the source of truth.
