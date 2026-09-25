@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Providers } from "./providers";
+import { Providers, WalletSignInNotice } from "./providers";
 
 export const metadata: Metadata = {
   title: "Seekerthon",
@@ -31,6 +31,7 @@ export default function RootLayout({
               </div>
             </div>
           </nav>
+          <WalletSignInNotice />
           <main>{children}</main>
           <footer className="border-t border-gray-200 bg-white mt-12 py-6 px-6">
             <div className="max-w-4xl mx-auto flex gap-6 text-sm text-gray-500">

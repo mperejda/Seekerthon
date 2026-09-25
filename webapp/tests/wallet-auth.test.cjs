@@ -26,7 +26,12 @@ function setup(responses) {
     },
   };
   vm.runInNewContext(code, context);
-  return { authenticate: context.exports.authenticateWallet, calls };
+  return {
+    authenticate: context.exports.authenticateWallet,
+    restore: context.exports.restoreWalletSession,
+    signer: context.exports.selectedWalletSigner,
+    calls,
+  };
 }
 const wallet = "organizer-wallet";
 const user = { id: "organizer", wallet_address: wallet };
@@ -97,4 +102,71 @@ test("a late response after an account switch is ignored", async () => {
 test("unsupported message signing gives an actionable error", async () => {
   const { authenticate } = setup([noSession()]);
   await assert.rejects(authenticate(wallet, undefined, active), /cannot sign messages/);
+});
+
+test("automatic session restore never starts a signing challenge", async () => {
+  const { restore, calls } = setup([noSession(), ok({ id: "other", wallet_address: "other-wallet" }), ok(user)]);
+  assert.equal(await restore(wallet), null);
+  assert.equal(await restore(wallet), null);
+  assert.equal((await restore(wallet)).wallet_address, wallet);
+  assert.ok(calls.every(({ url }) => url.endsWith("/users/me")));
+});
+
+for (const name of ["Phantom", "Backpack", "Another Wallet Standard wallet"]) {
+  test(name + " selection signs only through that adapter", async () => {
+    const { authenticate, signer } = setup([noSession(), challenge(), ok({ user }), ok(user)]);
+    const prompts = [];
+    const adapters = ["Phantom", "Backpack", "Another Wallet Standard wallet"].map((name) => ({
+      name,
+      connected: true,
+      publicKey: { toBase58: () => wallet },
+      async signMessage() {
+        // Accessing this.name also verifies the adapter's receiver is preserved.
+        prompts.push(this.name);
+        return signature();
+      },
+    }));
+    const selected = adapters.find((adapter) => adapter.name === name);
+    await authenticate(wallet, signer(selected, wallet, () => true), active);
+    assert.deepEqual(prompts, [name]);
+  });
+}
+
+test("switching adapters with the same public key cancels the previous signer", async () => {
+  const { signer } = setup([]);
+  let current = true;
+  const sign = signer({
+    connected: true,
+    publicKey: { toBase58: () => wallet },
+    signMessage: () => assert.fail("old wallet must not open"),
+  }, wallet, () => current);
+  current = false;
+  await assert.rejects(sign(new Uint8Array()), /selected wallet changed/);
+});
+
+test("an account change inside the adapter cancels signing before React updates", async () => {
+  const { signer } = setup([]);
+  const adapter = {
+    connected: true,
+    publicKey: { toBase58: () => wallet },
+    signMessage: () => assert.fail("old account must not sign"),
+  };
+  const sign = signer(adapter, wallet, () => true);
+  adapter.publicKey = { toBase58: () => "new-account" };
+  await assert.rejects(sign(new Uint8Array()), /selected wallet changed/);
+});
+
+test("switching wallets while approval is pending discards the signature", async () => {
+  const { authenticate, signer, calls } = setup([noSession(), challenge()]);
+  let current = true;
+  const sign = signer({
+    connected: true,
+    publicKey: { toBase58: () => wallet },
+    async signMessage() {
+      current = false;
+      return signature();
+    },
+  }, wallet, () => current);
+  await assert.rejects(authenticate(wallet, sign, active), /selected wallet changed/);
+  assert.ok(calls.every(({ url }) => !url.endsWith("/login")));
 });

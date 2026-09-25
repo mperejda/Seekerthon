@@ -1,11 +1,11 @@
 "use client";
 
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
-import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { WalletModalProvider, useWalletModal } from "@solana/wallet-adapter-react-ui";
 import "@solana/wallet-adapter-react-ui/styles.css";
-import { createContext, useContext, ReactNode, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { authenticateWallet } from "../lib/wallet-auth";
+import { authenticateWallet, restoreWalletSession, selectedWalletSigner } from "../lib/wallet-auth";
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
 const SSR_ORIGIN = "http://localhost:3000";
 
@@ -17,40 +17,104 @@ export interface SeekerUser {
 // undefined = signing in, null = no session for the connected wallet.
 export const UserContext = createContext<SeekerUser | null | undefined>(undefined);
 export function useUser() { return useContext(UserContext); }
-const AuthContext = createContext({ error: null as string | null, retry: () => {} });
+const AuthContext = createContext({
+  error: null as string | null,
+  signing: false,
+  signIn: () => {},
+});
 export function useWalletAuth() { return useContext(AuthContext); }
 
+export function WalletSignInNotice() {
+  const { wallet, connected, publicKey } = useWallet();
+  const { setVisible } = useWalletModal();
+  const { error, signing, signIn } = useWalletAuth();
+  const user = useUser();
+  if (!connected || !wallet || !publicKey || user?.wallet_address === publicKey.toBase58()) return null;
+  const name = wallet.adapter.name;
+  return (
+    <div className="max-w-4xl mx-auto mt-4 px-4">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900" role="status">
+        <p>
+          {signing
+            ? `Approve the sign-in request in ${name}.`
+            : user === undefined
+            ? `Checking your ${name} session…`
+            : `Connected to ${name}. Sign in to continue.`}
+        </p>
+        {error && <p className="mt-2 text-red-800">{error}</p>}
+        <div className="mt-3 flex gap-4">
+          <button type="button" disabled={user === undefined || signing} onClick={signIn}
+            className="font-medium underline disabled:opacity-50">
+            {error ? `Retry sign-in with ${name}` : `Sign in with ${name}`}
+          </button>
+          <button type="button" onClick={() => setVisible(true)} className="font-medium underline">
+            Change wallet
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AuthGate({ children }: { children: ReactNode }) {
-  const { publicKey, signMessage, connected } = useWallet();
-  const walletAddress = connected ? publicKey?.toBase58() : undefined;
+  const { publicKey, wallet, connected } = useWallet();
+  const adapter = wallet?.adapter;
+  // Adapter selection can update before WalletProvider's account state does.
+  const walletAddress = connected && adapter?.connected &&
+    adapter.publicKey?.toBase58() === publicKey?.toBase58() ? publicKey?.toBase58() : undefined;
+  const selection = useMemo(() => ({ adapter, walletAddress }), [adapter, walletAddress]);
+  const latestSelection = useRef(selection);
+  latestSelection.current = selection;
+  const generation = useRef(0);
+  const pendingSignIn = useRef<number | null>(null);
   const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [signing, setSigning] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const request = ++generation.current;
+    pendingSignIn.current = null;
+    setSigning(false);
     setError(null);
     setUser(walletAddress ? undefined : null);
-    if (!walletAddress) return;
+    if (walletAddress) {
+      // Auto-reconnection may restore a cookie, but must never open a signing
+      // prompt for a remembered wallet before the user chooses one.
+      restoreWalletSession(walletAddress).then((session) => {
+        if (generation.current === request && latestSelection.current === selection) {
+          setUser(session ? { id: session.id, wallet_address: walletAddress } : null);
+        }
+      });
+    }
+    return () => { generation.current++; };
+  }, [selection, walletAddress]);
 
-    (async () => {
-      try {
-        const session = await authenticateWallet(walletAddress, signMessage, () => cancelled);
-        if (!cancelled && session) setUser({ id: session.id, wallet_address: walletAddress });
-      } catch (err) {
-        if (cancelled) return;
+  const signIn = async () => {
+    if (!adapter || !walletAddress || pendingSignIn.current !== null) return;
+    const request = ++generation.current;
+    pendingSignIn.current = request;
+    const isCancelled = () => generation.current !== request || latestSelection.current !== selection;
+    setSigning(true);
+    setUser(undefined);
+    setError(null);
+    try {
+      const signer = selectedWalletSigner(adapter, walletAddress, () => !isCancelled());
+      const session = await authenticateWallet(walletAddress, signer, isCancelled);
+      if (!isCancelled() && session) setUser({ id: session.id, wallet_address: walletAddress });
+    } catch (err) {
+      if (!isCancelled()) {
         setError(err instanceof Error ? err.message : "Wallet sign-in failed. Please try again.");
         setUser(null);
       }
-    })();
-
-    // Ignore signatures and responses from a disconnected or previous account.
-    return () => { cancelled = true; };
-  }, [walletAddress, signMessage, attempt]);
+    } finally {
+      if (pendingSignIn.current === request) pendingSignIn.current = null;
+      if (!isCancelled()) setSigning(false);
+    }
+  };
 
   const currentUser = !walletAddress ? null : user && user.wallet_address !== walletAddress ? undefined : user;
   return (
-    <AuthContext.Provider value={{ error, retry: () => setAttempt((n) => n + 1) }}>
+    <AuthContext.Provider value={{ error, signing, signIn }}>
       <UserContext.Provider value={currentUser}>{children}</UserContext.Provider>
     </AuthContext.Provider>
   );

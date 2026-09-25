@@ -22,13 +22,45 @@ async function authRequest(path: string, options?: RequestInit) {
   return data;
 }
 
+export async function restoreWalletSession(walletAddress: string) {
+  const session = await authRequest("/users/me").catch(() => null);
+  return session?.wallet_address === walletAddress ? session : null;
+}
+
+interface MessageWallet {
+  connected: boolean;
+  publicKey: { toBase58(): string } | null;
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+}
+
+export function selectedWalletSigner(
+  adapter: MessageWallet,
+  walletAddress: string,
+  isCurrent: () => boolean,
+) {
+  if (!adapter.signMessage) return undefined;
+  return async (message: Uint8Array) => {
+    const assertCurrent = () => {
+      if (!isCurrent() || !adapter.connected || adapter.publicKey?.toBase58() !== walletAddress) {
+        throw new Error("The selected wallet changed. Please sign in again.");
+      }
+    };
+    assertCurrent();
+    // Invoke the captured adapter, preserving its receiver. Never use a global
+    // injected provider, which another installed extension could replace.
+    const signature = await adapter.signMessage!(message);
+    assertCurrent();
+    return signature;
+  };
+}
+
 export async function authenticateWallet(
   walletAddress: string,
   signMessage: ((message: Uint8Array) => Promise<Uint8Array>) | undefined,
   isCancelled: () => boolean,
 ) {
   // A cookie is usable only when it belongs to the connected account.
-  const session = await authRequest("/users/me").catch(() => null);
+  const session = await restoreWalletSession(walletAddress);
   if (isCancelled()) return null;
   if (session?.wallet_address === walletAddress) return session;
   if (!signMessage) throw new Error("This wallet cannot sign messages. Choose a wallet that supports message signing.");

@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 import dynamic from "next/dynamic";
-import { useUser, useWalletAuth } from "../../providers";
+import { useUser } from "../../providers";
 
 const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
@@ -20,9 +20,10 @@ function bytesToBase64(bytes: ArrayLike<number>): string {
 }
 
 export default function CreateHackathonPage() {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, wallet, connected } = useWallet();
   const user = useUser();
-  const { error: authError, retry } = useWalletAuth();
+  const currentWallet = useRef({ adapter: wallet?.adapter, address: publicKey?.toBase58(), connected });
+  currentWallet.current = { adapter: wallet?.adapter, address: publicKey?.toBase58(), connected };
   const authenticated = !!publicKey && user?.wallet_address === publicKey.toBase58();
   const [form, setForm] = useState({
     title: "",
@@ -50,6 +51,15 @@ export default function CreateHackathonPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!publicKey || !signTransaction || !authenticated || loading) return;
+    const fundingWallet = currentWallet.current;
+    const assertFundingWallet = () => {
+      const current = currentWallet.current;
+      if (!current.connected || current.adapter !== fundingWallet.adapter ||
+          current.address !== fundingWallet.address || !fundingWallet.adapter?.connected ||
+          fundingWallet.adapter.publicKey?.toBase58() !== fundingWallet.address) {
+        throw new Error("The selected wallet changed. Reconnect your organizer wallet and try again.");
+      }
+    };
     setLoading(true);
     setError(null);
     let hackathonId: string | null = null;
@@ -90,7 +100,9 @@ export default function CreateHackathonPage() {
       // and does not refresh the blockhash of the transaction we actually sign.
 
       setStep("Waiting for wallet approval…");
+      assertFundingWallet();
       const signedTx = await signTransaction(tx);
+      assertFundingWallet();
 
       setStep("Preparing signed transaction...");
       const signed_tx_b64 = bytesToBase64(
@@ -190,22 +202,6 @@ export default function CreateHackathonPage() {
         <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-amber-800 mb-3">Connect your organizer wallet to continue</p>
           <WalletMultiButton />
-        </div>
-      )}
-
-      {publicKey && user === undefined && (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
-          Signing in to Seekerthon — please approve the signature request in your wallet…
-        </div>
-      )}
-
-      {publicKey && user === null && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-          <p className="font-medium">Wallet sign-in failed</p>
-          <p className="mt-1">{authError ?? "Please sign in with your connected wallet to continue."}</p>
-          <button type="button" onClick={retry} className="mt-3 font-medium underline">
-            Retry wallet sign-in
-          </button>
         </div>
       )}
 
