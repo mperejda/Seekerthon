@@ -77,12 +77,16 @@ jobs:
             ANDROID_KEY_PASSWORD
             GOOGLE_SERVICES_JSON_BASE64
           )
+          missing=0
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing required GitHub Actions secret: $name"
-              exit 1
+              missing=1
             fi
           done
+          if (( missing )); then
+            exit 1
+          fi
           if [[ "$ANDROID_API_URL" != */ ]]; then
             echo "::error::ANDROID_API_URL must end with a slash for Retrofit"
             exit 1
