@@ -1,8 +1,14 @@
 name: Solana Mobile dApp Store
 
+run-name: Android ${{ inputs.version || github.ref_name }}${{ inputs.publish && ' — publish' || ' — build only' }}
+
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Expected Android versionName (for example, 1.3.2)
+        required: true
+        type: string
       whats_new:
         description: Release notes shown on the dApp Store
         required: true
@@ -18,6 +24,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  DAPP_STORE_CLI_VERSION: 1.0.1
 
 concurrency:
   group: solana-dapp-store-${{ github.ref }}
@@ -87,6 +96,7 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/seekerthon-release.keystore"
           printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
           chmod 600 "$RUNNER_TEMP/seekerthon-release.keystore" android/app/google-services.json
+          jq --exit-status '.project_info.project_id | strings | length > 0' android/app/google-services.json > /dev/null
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/seekerthon-release.keystore" >> "$GITHUB_ENV"
 
       - name: Build release APK
@@ -94,6 +104,8 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleRelease
 
       - name: Verify APK package and signature
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
         run: |
           APK_PATH="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
           if [[ -z "$APK_PATH" ]]; then
@@ -116,6 +128,10 @@ jobs:
           fi
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" != "android-v$VERSION_NAME" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match APK version android-v$VERSION_NAME"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$EXPECTED_VERSION" != "$VERSION_NAME" ]]; then
+            echo "::error::Requested version $EXPECTED_VERSION does not match APK version $VERSION_NAME"
             exit 1
           fi
 
@@ -158,7 +174,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install Solana Mobile publisher CLI
-        run: npm install --global @solana-mobile/dapp-store-cli@1.0.0
+        run: |
+          npm install --global "@solana-mobile/dapp-store-cli@$DAPP_STORE_CLI_VERSION"
+          dapp-store --version
 
       - name: Validate publisher secrets
         env:
@@ -192,8 +210,11 @@ jobs:
           KEYPAIR_PATH="$RUNNER_TEMP/solana-publisher-keypair.json"
           printf '%s' "$SOLANA_PUBLISHER_KEYPAIR_BASE64" | base64 --decode > "$KEYPAIR_PATH"
           chmod 600 "$KEYPAIR_PATH"
+          jq --exit-status 'type == "array" and length == 64 and all(.[]; type == "number")' "$KEYPAIR_PATH" > /dev/null
 
-          dapp-store \
+          printf '%s' "$DAPP_STORE_API_KEY" | dapp-store \
             --apk-file "$APK_PATH" \
             --keypair "$KEYPAIR_PATH" \
-            --whats-new "$WHATS_NEW"
+            --whats-new "$WHATS_NEW" \
+            --api-key-stdin \
+            --idempotency-key "github-${{ github.run_id }}"

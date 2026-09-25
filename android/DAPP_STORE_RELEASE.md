@@ -51,7 +51,9 @@ commit the keystore, Google Services file, publisher keypair, or decoded secret.
 1. Increment `versionCode` and update `versionName` in `android/app/build.gradle`.
 2. Commit and push the release changes.
 3. Open **Actions > Solana Mobile dApp Store > Run workflow**.
-4. Enter user-facing release notes in **whats_new**.
+4. Enter the exact `versionName` in **version** and user-facing release notes in
+   **whats_new**. The build fails before publishing if the requested version and
+   APK version do not match.
 5. Leave **publish** disabled for the first run. Download and test the signed APK
    artifact on a Seeker device.
 6. Run the workflow again with **publish** enabled. Approve the protected
@@ -62,3 +64,11 @@ tag-triggered runs never publish to the store.
 
 Each dApp Store update must use the same Android signing key and publisher wallet
 as the original release. `versionCode` must increase monotonically.
+
+## Troubleshooting
+
+The workflow's run list is the source of truth. If no run appears under
+**Actions > Solana Mobile dApp Store**, the workflow was never dispatched; no
+build or publish was attempted. A successful build-only run produces a signed
+APK artifact and checksum. Publishing additionally requires approval of the
+`solana-dapp-store` environment and ends with a CLI publication summary.
