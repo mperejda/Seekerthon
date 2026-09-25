@@ -56,7 +56,7 @@ class CreateHackathonViewModel @Inject constructor(
 
         if (s.title.isBlank()) { _state.update { it.copy(error = "Title is required") }; return }
         if (s.description.isBlank()) { _state.update { it.copy(error = "Description is required") }; return }
-        if (prize == null || prize <= 0) { _state.update { it.copy(error = "Enter a valid prize amount") }; return }
+        if (prize == null || prize < 100) { _state.update { it.copy(error = "Minimum prize is 100 USDC") }; return }
         if (startMs == null) { _state.update { it.copy(error = "Voting start date and time are required") }; return }
         if (endMs == null) { _state.update { it.copy(error = "Voting end date and time are required") }; return }
         if (endMs <= startMs) { _state.update { it.copy(error = "Voting end must be after voting start") }; return }

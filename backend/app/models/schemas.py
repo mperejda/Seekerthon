@@ -104,6 +104,9 @@ class UserActivityResponse(BaseModel):
 _SOLANA_PUBKEY_RE = re.compile(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')
 
 
+MIN_PRIZE_USDC_MICROUNITS = 100 * 1_000_000  # 100 USDC
+
+
 class HackathonCreate(BaseModel):
     title: str
     description: str
@@ -112,6 +115,13 @@ class HackathonCreate(BaseModel):
     voting_end: datetime
     max_projects: int = 100
     signing_flow: Literal["backend_presigned", "wallet_first"] = "backend_presigned"
+
+    @field_validator("prize_pool_usdc")
+    @classmethod
+    def validate_min_prize(cls, v: int) -> int:
+        if v < MIN_PRIZE_USDC_MICROUNITS:
+            raise ValueError("Minimum prize pool is 100 USDC")
+        return v
 
 
 class HackathonUpdate(BaseModel):
