@@ -3,9 +3,9 @@
 import { ConnectionProvider, WalletProvider, useWallet } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import "@solana/wallet-adapter-react-ui/styles.css";
-import { createContext, useContext, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, ReactNode, useEffect, useMemo, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+import { authenticateWallet } from "../lib/wallet-auth";
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "/api/rpc";
 const SSR_ORIGIN = "http://localhost:3000";
 
@@ -14,91 +14,53 @@ export interface SeekerUser {
   wallet_address: string;
 }
 
-// undefined = auth check in progress, null = confirmed not logged in, SeekerUser = logged in
+// undefined = signing in, null = no session for the connected wallet.
 export const UserContext = createContext<SeekerUser | null | undefined>(undefined);
 export function useUser() { return useContext(UserContext); }
-
-function encodeBase58(bytes: Uint8Array): string {
-  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  let n = BigInt(0);
-  for (const b of bytes) n = n * 256n + BigInt(b);
-  let s = "";
-  while (n > 0n) { s = ALPHABET[Number(n % 58n)] + s; n /= 58n; }
-  for (const b of bytes) { if (b !== 0) break; s = "1" + s; }
-  return s;
-}
+const AuthContext = createContext({ error: null as string | null, retry: () => {} });
+export function useWalletAuth() { return useContext(AuthContext); }
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { publicKey, signMessage, connected } = useWallet();
-  const authing = useRef(false);
-  // Tracks the last wallet address we attempted auth for. When auth fails and
-  // user becomes null, the effect would re-run (user is a dependency) and
-  // restart auth endlessly. Comparing against this ref breaks that loop — auth
-  // only retries when the wallet actually changes.
-  const lastAuthWallet = useRef<string | null>(null);
-  // undefined = auth check in progress, null = confirmed no session, SeekerUser = logged in
+  const walletAddress = connected ? publicKey?.toBase58() : undefined;
   const [user, setUser] = useState<SeekerUser | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  // Restore session from the httpOnly cookie on mount. We never read the JWT
-  // directly in the browser — the cookie is set by /users/login and sent
-  // automatically by credentials: 'include'.
   useEffect(() => {
-    fetch(`${API}/users/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((u) => setUser(u ? { id: u.id, wallet_address: u.wallet_address } : null))
-      .catch(() => setUser(null));
-  }, []);
+    let cancelled = false;
+    setError(null);
+    setUser(walletAddress ? undefined : null);
+    if (!walletAddress) return;
 
-  // Sign challenge when wallet connects and no valid session exists, or when
-  // the connected wallet differs from the one in the current cookie.
-  useEffect(() => {
-    if (!connected || !publicKey || !signMessage || authing.current) return;
-    if (user === undefined) return; // still resolving session
-    const walletAddress = publicKey.toBase58();
-    if (user !== null && user.wallet_address === walletAddress) return;
-    // Don't retry the same wallet after a failure — prevents an infinite sign
-    // loop when the user rejects the prompt or lacks a Seeker Genesis Token.
-    if (user === null && lastAuthWallet.current === walletAddress) return;
-
-    authing.current = true;
-    lastAuthWallet.current = walletAddress;
     (async () => {
       try {
-        const challengeRes = await fetch(`${API}/users/challenge?wallet_address=${walletAddress}`);
-        const { challenge } = await challengeRes.json();
-        const sig = await signMessage(new TextEncoder().encode(challenge));
-        const loginRes = await fetch(`${API}/users/login`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ wallet_address: walletAddress, signature: encodeBase58(sig), challenge }),
-        });
-        if (!loginRes.ok) {
-          const body = await loginRes.json().catch(() => null);
-          throw new Error(body?.detail ?? `Login failed (${loginRes.status})`);
-        }
-        const data = await loginRes.json();
-        // access_token is returned for parity with the mobile client but the
-        // webapp deliberately ignores it — the cookie is the source of truth.
-        setUser({ id: data.user.id, wallet_address: data.user.wallet_address });
-      } catch (e) {
-        console.error("Wallet auth failed", e);
+        const session = await authenticateWallet(walletAddress, signMessage, () => cancelled);
+        if (!cancelled && session) setUser({ id: session.id, wallet_address: walletAddress });
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Wallet sign-in failed. Please try again.");
         setUser(null);
-      } finally {
-        authing.current = false;
       }
     })();
-  }, [connected, publicKey, signMessage, user]);
 
-  return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
+    // Ignore signatures and responses from a disconnected or previous account.
+    return () => { cancelled = true; };
+  }, [walletAddress, signMessage, attempt]);
+
+  const currentUser = !walletAddress ? null : user && user.wallet_address !== walletAddress ? undefined : user;
+  return (
+    <AuthContext.Provider value={{ error, retry: () => setAttempt((n) => n + 1) }}>
+      <UserContext.Provider value={currentUser}>{children}</UserContext.Provider>
+    </AuthContext.Provider>
+  );
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  // Wallet Standard adapters discover installed wallets automatically.
   const wallets = useMemo(() => [], []);
   const rpcEndpoint = useMemo(() => {
-    if (RPC_ENDPOINT.startsWith("http://") || RPC_ENDPOINT.startsWith("https://")) {
-      return RPC_ENDPOINT;
-    }
+    if (RPC_ENDPOINT.startsWith("http://") || RPC_ENDPOINT.startsWith("https://")) return RPC_ENDPOINT;
     const origin = typeof window === "undefined" ? SSR_ORIGIN : window.location.origin;
     return new URL(RPC_ENDPOINT, origin).toString();
   }, []);
@@ -106,9 +68,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <ConnectionProvider endpoint={rpcEndpoint}>
       <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <AuthGate>{children}</AuthGate>
-        </WalletModalProvider>
+        <WalletModalProvider><AuthGate>{children}</AuthGate></WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );

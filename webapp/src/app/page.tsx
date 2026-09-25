@@ -9,7 +9,7 @@ const WalletMultiButton = dynamic(
   { ssr: false }
 );
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API = "/api/v1";
 
 interface Hackathon {
   id: string;

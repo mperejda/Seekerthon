@@ -9,7 +9,7 @@ const WalletMultiButton = dynamic(
 );
 import { Transaction, SendTransactionError } from "@solana/web3.js";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API = "/api/v1";
 
 async function extractTxError(err: unknown, connection: import("@solana/web3.js").Connection): Promise<string> {
   if (err instanceof SendTransactionError) {

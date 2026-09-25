@@ -1,28 +1,29 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 import dynamic from "next/dynamic";
-import { useUser } from "../../providers";
+import { useUser, useWalletAuth } from "../../providers";
 
 const WalletMultiButton = dynamic(
   async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
   { ssr: false }
 );
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API = "/api/v1";
 const ACTIVE_STATUSES = new Set(["open", "voting", "verifying"]);
 
-function bytesToBase64(bytes: Uint8Array): string {
+function bytesToBase64(bytes: ArrayLike<number>): string {
   let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
 export default function CreateHackathonPage() {
   const { publicKey, signTransaction } = useWallet();
-  const { connection } = useConnection();
   const user = useUser();
+  const { error: authError, retry } = useWalletAuth();
+  const authenticated = !!publicKey && user?.wallet_address === publicKey.toBase58();
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -48,7 +49,7 @@ export default function CreateHackathonPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!publicKey || !signTransaction) return;
+    if (!publicKey || !signTransaction || !authenticated || loading) return;
     setLoading(true);
     setError(null);
     let hackathonId: string | null = null;
@@ -84,15 +85,9 @@ export default function CreateHackathonPage() {
         );
       }
 
-      setStep("Simulating transaction…");
-      const simResult = await connection.simulateTransaction(tx);
-      if (simResult.value.err) {
-        const errStr = JSON.stringify(simResult.value.err);
-        if (!errStr.includes("BlockhashNotFound")) {
-          const logs = (simResult.value.logs ?? []).join("\n");
-          throw new Error(`Simulation failed: ${errStr}\n\nProgram logs:\n${logs}`);
-        }
-      }
+      // The backend already simulates this exact transaction on its escrow
+      // network. A second browser simulation can use a different RPC/network
+      // and does not refresh the blockhash of the transaction we actually sign.
 
       setStep("Waiting for wallet approval…");
       const signedTx = await signTransaction(tx);
@@ -171,6 +166,17 @@ export default function CreateHackathonPage() {
     <div className="max-w-2xl mx-auto py-12 px-4">
       <h1 className="text-3xl font-bold mb-8">Create Hackathon</h1>
 
+      {publicKey && (
+        <div className="mb-6">
+          <WalletMultiButton />
+          {!signTransaction && (
+            <p className="mt-2 text-sm text-red-800">
+              This wallet cannot sign escrow transactions. Choose a wallet that supports transaction signing.
+            </p>
+          )}
+        </div>
+      )}
+
       {activeHackathon && (
         <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
           <p className="font-medium">A hackathon is currently ongoing</p>
@@ -196,7 +202,10 @@ export default function CreateHackathonPage() {
       {publicKey && user === null && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
           <p className="font-medium">Wallet sign-in failed</p>
-          <p className="mt-1">Try disconnecting and reconnecting your wallet. If the problem persists, check the browser console for details.</p>
+          <p className="mt-1">{authError ?? "Please sign in with your connected wallet to continue."}</p>
+          <button type="button" onClick={retry} className="mt-3 font-medium underline">
+            Retry wallet sign-in
+          </button>
         </div>
       )}
 
@@ -278,7 +287,7 @@ export default function CreateHackathonPage() {
 
         <button
           type="submit"
-          disabled={!publicKey || !signTransaction || !user || loading || !!activeHackathon}
+          disabled={!authenticated || !signTransaction || loading || !!activeHackathon}
           className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading && step
